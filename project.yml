@@ -1,0 +1,66 @@
+name: SitRight
+options:
+  bundleIdPrefix: com.leon
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "26.0"
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    DEVELOPMENT_TEAM: ""
+    ENABLE_APP_SANDBOX: YES
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: "0.1.0"
+
+targets:
+  SitRight:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    dependencies:
+      - target: SitRightWidgetExtension
+        embed: true
+        codeSign: true
+        copy:
+          destination: plugins
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.leon.SitRight
+        PRODUCT_NAME: SitRight
+        INFOPLIST_FILE: AppBundle/Info.plist
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+
+  SitRightWidgetExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Widget
+      - path: Sources/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.leon.SitRight.SitRightWidgetExtension
+        PRODUCT_NAME: SitRightWidgetExtension
+        INFOPLIST_FILE: WidgetBundle/Info.plist
+        APPLICATION_EXTENSION_API_ONLY: true
+        SKIP_INSTALL: true
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+          - "@executable_path/../../../../Frameworks"
+
+  SitRightTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: SitRight

@@ -24,6 +24,7 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      - path: Assets.xcassets
     dependencies:
       - target: SitRightWidgetExtension
         embed: true
@@ -35,6 +36,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.leon.SitRight
         PRODUCT_NAME: SitRight
         INFOPLIST_FILE: AppBundle/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/../Frameworks"

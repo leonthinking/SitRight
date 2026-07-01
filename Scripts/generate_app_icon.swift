@@ -96,106 +96,104 @@ func makeIcon(pixels: Int) -> CGImage {
 
 func drawIcon(in context: CGContext) {
     let canvas = CGRect(x: 0, y: 0, width: 1024, height: 1024)
-    let squircle = CGPath(roundedRect: canvas.insetBy(dx: 10, dy: 10), cornerWidth: 222, cornerHeight: 222, transform: nil)
+    let squircle = CGPath(roundedRect: canvas.insetBy(dx: 8, dy: 8), cornerWidth: 224, cornerHeight: 224, transform: nil)
 
     context.addPath(squircle)
     context.clip()
 
-    drawBackground(in: context, rect: canvas)
-    drawBadge(in: context)
-    drawPostureCue(in: context)
-    drawChair(in: context)
-    drawPerson(in: context)
+    drawBackground(in: context)
+    drawPanel(in: context)
+    drawReminderRing(in: context)
+    drawStool(in: context)
     drawInnerHighlight(in: context)
 }
 
-func drawBackground(in context: CGContext, rect: CGRect) {
+func drawBackground(in context: CGContext) {
     let colors = [
-        CGColor(red: 0.87, green: 0.99, blue: 0.96, alpha: 1.0),
-        CGColor(red: 0.54, green: 0.88, blue: 0.85, alpha: 1.0),
-        CGColor(red: 0.17, green: 0.62, blue: 0.58, alpha: 1.0),
+        CGColor(red: 0.91, green: 0.99, blue: 1.00, alpha: 1.0),
+        CGColor(red: 0.57, green: 0.82, blue: 0.93, alpha: 1.0),
+        CGColor(red: 0.08, green: 0.42, blue: 0.62, alpha: 1.0),
     ] as CFArray
-    let locations: [CGFloat] = [0, 0.52, 1]
-    let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: locations)!
-    context.drawLinearGradient(gradient, start: CGPoint(x: 180, y: 970), end: CGPoint(x: 890, y: 90), options: [])
+    let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.57, 1])!
+    context.drawLinearGradient(gradient, start: CGPoint(x: 126, y: 988), end: CGPoint(x: 914, y: 82), options: [])
 
-    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.22))
-    context.fillEllipse(in: CGRect(x: -170, y: 610, width: 580, height: 500))
+    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.18))
+    context.fillEllipse(in: CGRect(x: -168, y: 622, width: 572, height: 462))
 
-    context.setFillColor(CGColor(red: 0.04, green: 0.22, blue: 0.26, alpha: 0.14))
-    context.fillEllipse(in: CGRect(x: 520, y: -170, width: 650, height: 520))
+    context.setFillColor(CGColor(red: 0.02, green: 0.19, blue: 0.23, alpha: 0.13))
+    context.fillEllipse(in: CGRect(x: 548, y: -158, width: 642, height: 532))
 }
 
-func drawBadge(in context: CGContext) {
-    let badge = CGRect(x: 164, y: 158, width: 696, height: 708)
+func drawPanel(in context: CGContext) {
+    let rect = CGRect(x: 184, y: 188, width: 656, height: 648)
     context.saveGState()
-    context.setShadow(offset: CGSize(width: 0, height: -22), blur: 48, color: CGColor(red: 0.04, green: 0.22, blue: 0.26, alpha: 0.22))
-    context.setFillColor(CGColor(red: 0.96, green: 1.0, blue: 0.98, alpha: 0.92))
-    context.addPath(CGPath(roundedRect: badge, cornerWidth: 176, cornerHeight: 176, transform: nil))
+    context.setShadow(offset: CGSize(width: 0, height: -24), blur: 56, color: CGColor(red: 0.02, green: 0.16, blue: 0.18, alpha: 0.22))
+    context.setFillColor(CGColor(red: 0.96, green: 1.00, blue: 0.98, alpha: 0.90))
+    context.addPath(CGPath(roundedRect: rect, cornerWidth: 208, cornerHeight: 208, transform: nil))
     context.fillPath()
     context.restoreGState()
 
     context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.72))
     context.setLineWidth(10)
-    context.addPath(CGPath(roundedRect: badge.insetBy(dx: 6, dy: 6), cornerWidth: 168, cornerHeight: 168, transform: nil))
+    context.addPath(CGPath(roundedRect: rect.insetBy(dx: 8, dy: 8), cornerWidth: 198, cornerHeight: 198, transform: nil))
     context.strokePath()
 }
 
-func drawChair(in context: CGContext) {
-    let chairColor = CGColor(red: 0.06, green: 0.24, blue: 0.30, alpha: 1.0)
-    let chairShadow = CGColor(red: 0.02, green: 0.14, blue: 0.17, alpha: 0.18)
+func drawReminderRing(in context: CGContext) {
+    let center = CGPoint(x: 512, y: 532)
+    let radius: CGFloat = 248
+    let width: CGFloat = 68
 
-    context.setFillColor(chairShadow)
-    context.fillEllipse(in: CGRect(x: 300, y: 260, width: 440, height: 58))
+    context.setFillColor(CGColor(red: 0.02, green: 0.73, blue: 0.36, alpha: 0.08))
+    context.fillEllipse(in: CGRect(x: center.x - 258, y: center.y - 258, width: 516, height: 516))
 
-    context.setFillColor(chairColor)
-    context.addPath(CGPath(roundedRect: CGRect(x: 292, y: 340, width: 428, height: 86), cornerWidth: 43, cornerHeight: 43, transform: nil))
-    context.fillPath()
-
-    context.addPath(CGPath(roundedRect: CGRect(x: 292, y: 424, width: 92, height: 300), cornerWidth: 46, cornerHeight: 46, transform: nil))
-    context.fillPath()
-
-    strokeLine(in: context, from: CGPoint(x: 420, y: 340), to: CGPoint(x: 372, y: 250), width: 38, color: chairColor)
-    strokeLine(in: context, from: CGPoint(x: 635, y: 340), to: CGPoint(x: 700, y: 250), width: 38, color: chairColor)
-}
-
-func drawPerson(in context: CGContext) {
-    let green = CGColor(red: 0.04, green: 0.77, blue: 0.30, alpha: 1.0)
-    let greenDark = CGColor(red: 0.03, green: 0.55, blue: 0.26, alpha: 1.0)
-    let shine = CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 0.52)
-
-    context.setFillColor(green)
-    context.fillEllipse(in: CGRect(x: 462, y: 644, width: 116, height: 116))
-
-    context.setFillColor(green)
-    context.addPath(CGPath(roundedRect: CGRect(x: 470, y: 438, width: 102, height: 196), cornerWidth: 51, cornerHeight: 51, transform: nil))
-    context.fillPath()
-
-    strokeLine(in: context, from: CGPoint(x: 452, y: 566), to: CGPoint(x: 392, y: 482), width: 44, color: greenDark)
-    strokeLine(in: context, from: CGPoint(x: 590, y: 564), to: CGPoint(x: 665, y: 496), width: 44, color: greenDark)
-    strokeLine(in: context, from: CGPoint(x: 520, y: 442), to: CGPoint(x: 644, y: 383), width: 52, color: green)
-    strokeLine(in: context, from: CGPoint(x: 524, y: 438), to: CGPoint(x: 444, y: 330), width: 52, color: green)
-
-    strokeLine(in: context, from: CGPoint(x: 522, y: 612), to: CGPoint(x: 522, y: 464), width: 15, color: shine)
-}
-
-func drawPostureCue(in context: CGContext) {
-    let cueColor = CGColor(red: 0.02, green: 0.70, blue: 0.35, alpha: 0.9)
-    context.setStrokeColor(cueColor)
-    context.setLineWidth(36)
+    context.setStrokeColor(CGColor(red: 0.05, green: 0.36, blue: 0.50, alpha: 0.13))
+    context.setLineWidth(width)
     context.setLineCap(.round)
-    context.addArc(center: CGPoint(x: 526, y: 520), radius: 252, startAngle: 0.12 * .pi, endAngle: 0.49 * .pi, clockwise: false)
+    context.addArc(center: center, radius: radius, startAngle: 0, endAngle: 2 * .pi, clockwise: false)
     context.strokePath()
 
-    strokeLine(in: context, from: CGPoint(x: 532, y: 772), to: CGPoint(x: 532, y: 826), width: 32, color: cueColor)
-    strokeLine(in: context, from: CGPoint(x: 532, y: 826), to: CGPoint(x: 492, y: 786), width: 32, color: cueColor)
-    strokeLine(in: context, from: CGPoint(x: 532, y: 826), to: CGPoint(x: 572, y: 786), width: 32, color: cueColor)
+    let ringColor = CGColor(red: 0.02, green: 0.74, blue: 0.36, alpha: 1)
+    context.setStrokeColor(ringColor)
+    context.setLineWidth(width)
+    context.setLineCap(.round)
+    context.addArc(center: center, radius: radius, startAngle: 0.18 * .pi, endAngle: 1.54 * .pi, clockwise: false)
+    context.strokePath()
+
+    let tip = CGPoint(
+        x: center.x + cos(1.54 * .pi) * radius,
+        y: center.y + sin(1.54 * .pi) * radius
+    )
+    context.setFillColor(ringColor)
+    context.fillEllipse(in: CGRect(x: tip.x - 30, y: tip.y - 30, width: 60, height: 60))
+}
+
+func drawStool(in context: CGContext) {
+    let stoolColor = CGColor(red: 0.04, green: 0.20, blue: 0.28, alpha: 1)
+
+    context.setFillColor(CGColor(red: 0.02, green: 0.14, blue: 0.18, alpha: 0.12))
+    context.fillEllipse(in: CGRect(x: 350, y: 246, width: 324, height: 50))
+
+    let seat = CGRect(x: 336, y: 350, width: 352, height: 82)
+    context.setFillColor(stoolColor)
+    context.addPath(CGPath(roundedRect: seat, cornerWidth: 41, cornerHeight: 41, transform: nil))
+    context.fillPath()
+
+    strokeLine(in: context, from: CGPoint(x: 450, y: 354), to: CGPoint(x: 420, y: 252), width: 40, color: stoolColor)
+    strokeLine(in: context, from: CGPoint(x: 574, y: 354), to: CGPoint(x: 604, y: 252), width: 40, color: stoolColor)
+    strokeLine(in: context, from: CGPoint(x: 392, y: 252), to: CGPoint(x: 452, y: 252), width: 28, color: stoolColor)
+    strokeLine(in: context, from: CGPoint(x: 572, y: 252), to: CGPoint(x: 632, y: 252), width: 28, color: stoolColor)
+
+    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.16))
+    context.setLineWidth(8)
+    context.addPath(CGPath(roundedRect: seat.insetBy(dx: 12, dy: 12), cornerWidth: 29, cornerHeight: 29, transform: nil))
+    context.strokePath()
 }
 
 func drawInnerHighlight(in context: CGContext) {
-    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.22))
+    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.23))
     context.setLineWidth(18)
-    context.addPath(CGPath(roundedRect: CGRect(x: 26, y: 26, width: 972, height: 972), cornerWidth: 204, cornerHeight: 204, transform: nil))
+    context.addPath(CGPath(roundedRect: CGRect(x: 30, y: 30, width: 964, height: 964), cornerWidth: 196, cornerHeight: 196, transform: nil))
     context.strokePath()
 }
 

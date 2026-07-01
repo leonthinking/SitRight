@@ -40,8 +40,8 @@ final class ReminderEngine: ObservableObject {
         self.reminderPresenter = reminderPresenter
         self.widgetSyncController = widgetSyncController
 
-        self.settingsStore.onSettingsChanged = { [weak self] in
-            self?.settingsDidChange()
+        self.settingsStore.onSettingsChanged = { [weak self] oldSettings, newSettings in
+            self?.settingsDidChange(from: oldSettings, to: newSettings)
         }
     }
 
@@ -275,9 +275,15 @@ final class ReminderEngine: ObservableObject {
         }
     }
 
-    private func settingsDidChange() {
-        notificationManager.requestAuthorizationIfNeeded()
-        scheduleNextReminder(from: Date())
+    private func settingsDidChange(from oldSettings: AppSettings, to newSettings: AppSettings) {
+        if newSettings.notificationsEnabled && !oldSettings.notificationsEnabled {
+            notificationManager.requestAuthorizationIfNeeded()
+        }
+
+        if newSettings.hasReminderScheduleChange(comparedTo: oldSettings) {
+            scheduleNextReminder(from: Date())
+        }
+
         publishWidgetSnapshot()
     }
 

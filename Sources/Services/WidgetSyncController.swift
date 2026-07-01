@@ -33,7 +33,7 @@ final class WidgetSyncController {
         lastSnapshot = snapshot
 
         if shouldReload {
-            WidgetCenter.shared.reloadTimelines(ofKind: "SitRightWidget")
+            WidgetCenter.shared.reloadTimelines(ofKind: SitRightWidgetKind.activity)
             lastReloadAt = now
         }
     }

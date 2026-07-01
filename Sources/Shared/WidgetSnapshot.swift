@@ -21,7 +21,7 @@ struct WidgetSnapshot: Codable, Equatable {
     static let empty = WidgetSnapshot(
         updatedAt: Date(),
         nextReminderAt: nil,
-        intervalMinutes: 30,
+        intervalMinutes: 45,
         state: .disabled,
         statusText: "打开 SitRight 开始提醒",
         completedCount: 0,
@@ -53,15 +53,11 @@ struct WidgetSnapshot: Codable, Equatable {
 }
 
 enum WidgetSnapshotStore {
-    static let appGroupIdentifiers = [
-        "973KFG9CL9.com.leon.SitRight",
-        "group.com.leon.SitRight"
-    ]
     static let fileName = "SitRightWidgetSnapshot.json"
 
     static func save(_ snapshot: WidgetSnapshot) {
         do {
-            let directory = try storageDirectory()
+            let directory = try SharedStorage.storageDirectory()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let data = try JSONEncoder().encode(snapshot)
             try data.write(to: directory.appendingPathComponent(fileName), options: [.atomic])
@@ -72,7 +68,8 @@ enum WidgetSnapshotStore {
 
     static func load() -> WidgetSnapshot {
         do {
-            let url = try storageDirectory().appendingPathComponent(fileName)
+            let url = try SharedStorage.readableFileURL(named: fileName)
+                ?? SharedStorage.storageDirectory().appendingPathComponent(fileName)
             let data = try Data(contentsOf: url)
             return try JSONDecoder().decode(WidgetSnapshot.self, from: data)
         } catch {
@@ -80,21 +77,4 @@ enum WidgetSnapshotStore {
         }
     }
 
-    private static func storageDirectory() throws -> URL {
-        for identifier in appGroupIdentifiers {
-            if let appGroupURL = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: identifier
-            ) {
-                return appGroupURL
-            }
-        }
-
-        let supportURL = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        return supportURL.appendingPathComponent("SitRight", isDirectory: true)
-    }
 }

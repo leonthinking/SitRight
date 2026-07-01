@@ -2,7 +2,7 @@ import Foundation
 
 struct AppSettings: Codable, Equatable {
     var remindersEnabled: Bool = true
-    var intervalMinutes: Int = 30
+    var intervalMinutes: Int = 45
     var dailyTarget: Int = 8
     var menuBarCountdownEnabled: Bool = true
 
@@ -77,6 +77,17 @@ struct AppSettings: Codable, Equatable {
         }
 
         return copy
+    }
+
+    func hasReminderScheduleChange(comparedTo other: AppSettings) -> Bool {
+        remindersEnabled != other.remindersEnabled
+            || intervalMinutes != other.intervalMinutes
+            || workdaysOnly != other.workdaysOnly
+            || workStartMinutes != other.workStartMinutes
+            || workEndMinutes != other.workEndMinutes
+            || lunchPauseEnabled != other.lunchPauseEnabled
+            || lunchStartMinutes != other.lunchStartMinutes
+            || lunchEndMinutes != other.lunchEndMinutes
     }
 }
 

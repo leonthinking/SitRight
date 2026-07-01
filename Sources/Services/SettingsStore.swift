@@ -6,7 +6,7 @@ final class SettingsStore: ObservableObject {
 
     @Published var lastErrorMessage: String?
 
-    var onSettingsChanged: (() -> Void)?
+    var onSettingsChanged: ((AppSettings, AppSettings) -> Void)?
 
     private let defaults: UserDefaults
     private let storageKey = "sitright.settings.v1"
@@ -41,8 +41,9 @@ final class SettingsStore: ObservableObject {
         let normalized = newSettings.normalized()
         guard normalized != settings else { return }
 
+        let oldSettings = settings
         settings = normalized
         save()
-        onSettingsChanged?()
+        onSettingsChanged?(oldSettings, normalized)
     }
 }

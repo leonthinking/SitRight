@@ -7,6 +7,7 @@ PRODUCTS_PATH="$DERIVED_DATA_PATH/Build/Products/Release"
 APP_PATH="$ROOT_DIR/build/SitRight.app"
 STAGED_APP_PATH="$DERIVED_DATA_PATH/Signed/SitRight.app"
 WIDGET_PATH="$STAGED_APP_PATH/Contents/PlugIns/SitRightWidgetExtension.appex"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
 
 clear_disallowed_xattrs() {
   local target="$1"
@@ -24,6 +25,14 @@ clear_root_disallowed_xattrs() {
 
   xattr -d com.apple.FinderInfo "$target" 2>/dev/null || true
   xattr -d 'com.apple.fileprovider.fpfs#P' "$target" 2>/dev/null || true
+}
+
+unregister_transient_app() {
+  local app_path="$1"
+  local appex_path="$app_path/Contents/PlugIns/SitRightWidgetExtension.appex"
+
+  [ -e "$appex_path" ] && /usr/bin/pluginkit -r "$appex_path" 2>/dev/null || true
+  [ -e "$app_path" ] && "$LSREGISTER" -u "$app_path" 2>/dev/null || true
 }
 
 cd "$ROOT_DIR"
@@ -67,9 +76,17 @@ fi
 
 clear_root_disallowed_xattrs "$STAGED_APP_PATH"
 
-/usr/bin/codesign --verify --strict "$WIDGET_PATH"
-/usr/bin/codesign --verify --strict --deep "$STAGED_APP_PATH"
+if [ -n "$SIGN_IDENTITY" ]; then
+  /usr/bin/codesign --verify --strict "$WIDGET_PATH"
+  /usr/bin/codesign --verify --strict --deep "$STAGED_APP_PATH"
+fi
 
 ditto --norsrc "$STAGED_APP_PATH" "$APP_PATH"
+
+unregister_transient_app "$PRODUCTS_PATH/SitRight.app"
+
+if [ "${SITRIGHT_KEEP_DERIVED_DATA:-0}" != "1" ]; then
+  rm -rf "$DERIVED_DATA_PATH"
+fi
 
 echo "$APP_PATH"

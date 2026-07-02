@@ -29,6 +29,10 @@ struct WidgetSnapshot: Codable, Equatable {
         dateKey: makeDateKey(for: Date())
     )
 
+    var allowsWidgetCompletion: Bool {
+        state == .due
+    }
+
     func progress(at date: Date = Date()) -> Double {
         guard state == .running || state == .due else { return 0 }
         guard let nextReminderAt else { return state == .due ? 1 : 0 }

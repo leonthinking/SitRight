@@ -73,12 +73,7 @@ struct SitRightWidgetEntryView: View {
                 summaryPill(title: "本周", value: "\(weekCompletedCount)")
                 summaryPill(title: "连续", value: "\(streakDays) 天")
                 Spacer(minLength: 0)
-                Button(intent: MarkActivityCompleteIntent()) {
-                    Label("完成", systemImage: "checkmark")
-                        .font(.caption.weight(.semibold))
-                }
-                .buttonStyle(.bordered)
-                .tint(.green)
+                completionButton
             }
         }
         .padding(4)
@@ -108,13 +103,10 @@ struct SitRightWidgetEntryView: View {
                     .frame(maxHeight: .infinity)
             }
 
-            Button(intent: MarkActivityCompleteIntent()) {
-                Label("标记完成一次", systemImage: "checkmark.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
+            HStack {
+                Spacer(minLength: 0)
+                completionButton
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
         }
         .padding(4)
     }
@@ -157,6 +149,17 @@ struct SitRightWidgetEntryView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var completionButton: some View {
+        Button(intent: MarkActivityCompleteIntent()) {
+            Label("完成", systemImage: "checkmark")
+                .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .tint(.green)
+        .disabled(!entry.snapshot.allowsWidgetCompletion)
+        .opacity(entry.snapshot.allowsWidgetCompletion ? 1 : 0.45)
     }
 
     private var today: ActivityDay {

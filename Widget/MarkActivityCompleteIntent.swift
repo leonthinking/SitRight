@@ -9,8 +9,14 @@ struct MarkActivityCompleteIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         let now = Date()
-        let day = ActivityHistoryStore.recordCompleted(at: now)
         var snapshot = WidgetSnapshotStore.load()
+
+        guard snapshot.allowsWidgetCompletion else {
+            WidgetCenter.shared.reloadTimelines(ofKind: SitRightWidgetKind.activity)
+            return .result()
+        }
+
+        let day = ActivityHistoryStore.recordCompleted(at: now)
         snapshot.updatedAt = now
         snapshot.completedCount = day.completedCount
         snapshot.dateKey = day.dateKey

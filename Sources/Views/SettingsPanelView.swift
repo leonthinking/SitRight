@@ -82,7 +82,7 @@ struct SettingsPanelView: View {
                 Button {
                     engine.snooze()
                 } label: {
-                    Label("延后 10 分钟", systemImage: "clock.arrow.circlepath")
+                    Label("延后 5 分钟", systemImage: "clock.arrow.circlepath")
                 }
                 .buttonStyle(.bordered)
 

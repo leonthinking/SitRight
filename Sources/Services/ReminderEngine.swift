@@ -69,7 +69,7 @@ final class ReminderEngine: ObservableObject {
         publishWidgetSnapshot()
     }
 
-    func snooze(minutes: Int = 10) {
+    func snooze(minutes: Int = 5) {
         reminderPresenter.dismiss()
         reminderShowing = false
         currentReminderText = nil

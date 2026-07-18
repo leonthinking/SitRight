@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TimerRingView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let progress: Double
     let title: String
     let subtitle: String
@@ -18,7 +19,7 @@ struct TimerRingView: View {
                     style: StrokeStyle(lineWidth: 12, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
-                .animation(.smooth(duration: 0.35), value: ringProgress)
+                .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: ringProgress)
 
             VStack(spacing: 6) {
                 Image(systemName: icon)

@@ -14,9 +14,9 @@ enum MenuBarTitleLayout {
 
             return 44
         case .paused:
-            return 52
+            return 36
         case .disabled:
-            return 28
+            return 36
         case .due, .outsideHours:
             return 36
         }
@@ -27,13 +27,13 @@ enum MenuBarTitleLayout {
         case .running:
             return countdownMeasurementText(for: remainingInterval)
         case .paused:
-            return "Paused"
+            return "暂停"
         case .disabled:
-            return "Off"
+            return "关闭"
         case .due:
-            return "Move"
+            return "活动"
         case .outsideHours:
-            return "Rest"
+            return "休息"
         }
     }
 

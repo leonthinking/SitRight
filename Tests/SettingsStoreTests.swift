@@ -3,13 +3,16 @@ import XCTest
 
 @MainActor
 final class SettingsStoreTests: XCTestCase {
-    func testDefaultIntervalIsFortyFiveMinutes() {
+    func testFreshInstallUsesAppleInspiredDeliveryDefaults() {
         let suiteName = "SitRightTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         let store = SettingsStore(defaults: defaults)
 
-        XCTAssertEqual(store.settings.intervalMinutes, 45)
+        XCTAssertEqual(store.settings.intervalMinutes, 50)
+        XCTAssertTrue(store.settings.notificationsEnabled)
+        XCTAssertFalse(store.settings.soundEnabled)
+        XCTAssertFalse(store.settings.popupEnabled)
     }
 
     func testIntervalShortcutUpdatesDoNotReenterPublishedSetter() {
@@ -150,5 +153,76 @@ final class SettingsStoreTests: XCTestCase {
             mutate(&updated)
             XCTAssertTrue(updated.hasReminderScheduleChange(comparedTo: baseline))
         }
+    }
+
+    func testLunchNormalizationMaintainsThirtyMinuteWindowInsideWorkHours() {
+        let suiteName = "SitRightTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let store = SettingsStore(defaults: defaults)
+
+        store.update { settings in
+            settings.workStartMinutes = 23 * 60
+            settings.workEndMinutes = 24 * 60
+            settings.lunchStartMinutes = 24 * 60
+            settings.lunchEndMinutes = 0
+        }
+
+        XCTAssertEqual(store.settings.lunchStartMinutes, 23 * 60 + 30)
+        XCTAssertEqual(store.settings.lunchEndMinutes, 24 * 60)
+    }
+
+    func testEmptyLegacySettingsUseAllCurrentDefaults() throws {
+        let suiteName = "SitRightTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set(try XCTUnwrap("{}".data(using: .utf8)), forKey: "sitright.settings.v1")
+
+        XCTAssertEqual(SettingsStore(defaults: defaults).settings, AppSettings())
+    }
+
+    func testCorruptSettingsFallBackToDefaults() {
+        let suiteName = "SitRightTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set(Data("not-json".utf8), forKey: "sitright.settings.v1")
+
+        XCTAssertEqual(SettingsStore(defaults: defaults).settings, AppSettings())
+    }
+
+    func testPersistedOutOfRangeValuesAreNormalizedOnLoad() throws {
+        let suiteName = "SitRightTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        var persisted = AppSettings()
+        persisted.intervalMinutes = 999
+        persisted.dailyTarget = 0
+        persisted.workStartMinutes = 2_000
+        persisted.workEndMinutes = -50
+        defaults.set(try JSONEncoder().encode(persisted), forKey: "sitright.settings.v1")
+
+        let settings = SettingsStore(defaults: defaults).settings
+
+        XCTAssertEqual(settings.intervalMinutes, 240)
+        XCTAssertEqual(settings.dailyTarget, 1)
+        XCTAssertEqual(settings.workStartMinutes, 23 * 60)
+        XCTAssertEqual(settings.workEndMinutes, 24 * 60)
+        XCTAssertGreaterThanOrEqual(settings.lunchStartMinutes, settings.workStartMinutes)
+        XCTAssertLessThanOrEqual(settings.lunchEndMinutes, settings.workEndMinutes)
+        XCTAssertGreaterThanOrEqual(settings.lunchEndMinutes - settings.lunchStartMinutes, 30)
+    }
+
+    func testNoOpUpdateDoesNotPersistOrNotify() {
+        let suiteName = "SitRightTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let store = SettingsStore(defaults: defaults)
+        var changeCount = 0
+        store.onSettingsChanged = { _, _ in changeCount += 1 }
+
+        store.update { $0.intervalMinutes = 50 }
+
+        XCTAssertEqual(changeCount, 0)
+        XCTAssertNil(defaults.data(forKey: "sitright.settings.v1"))
     }
 }

@@ -13,11 +13,28 @@ struct SitRightWidgetProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<SitRightWidgetEntry>) -> Void) {
         let now = Date()
         let entry = loadEntry(date: now)
-        let nextRefresh = Calendar.current.date(
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(
+            byAdding: .day,
+            value: 1,
+            to: calendar.startOfDay(for: now)
+        ) ?? now.addingTimeInterval(24 * 60 * 60)
+        let defaultRefresh = calendar.date(
             byAdding: .minute,
             value: 5,
-            to: Calendar.current.startOfDay(for: now.addingTimeInterval(24 * 60 * 60))
+            to: tomorrow
         ) ?? now.addingTimeInterval(60 * 60)
+        let deadlineRefreshes = [
+            entry.snapshot.nextReminderAt,
+            entry.snapshot.responseDeadline,
+            entry.snapshot.snoozedUntil,
+            entry.snapshot.guideEndsAt
+        ].compactMap { $0 }
+            .filter { $0 > now }
+        let nextRefresh = min(
+            defaultRefresh,
+            deadlineRefreshes.min() ?? defaultRefresh
+        )
 
         completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
     }
@@ -26,7 +43,7 @@ struct SitRightWidgetProvider: TimelineProvider {
         SitRightWidgetEntry(
             date: date,
             snapshot: WidgetSnapshotStore.load(),
-            history: ActivityHistoryStore.load()
+            history: ActivityHistoryStore.loadForDisplay()
         )
     }
 }
@@ -61,19 +78,22 @@ struct SitRightWidgetEntryView: View {
             HStack(alignment: .firstTextBaseline) {
                 header
                 Spacer()
-                Text("\(today.completedCount)/\(dailyTarget)")
+                Text("\(today.dailyGoalActivityCount)/\(dailyTarget)")
                     .font(.headline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
 
+            statusSummary
+
             HeatmapView(history: entry.history, endDate: entry.date, dayCount: 365)
                 .frame(maxHeight: .infinity)
 
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
+                summaryPill(title: "提醒后", value: "\(today.reminderCompletedCount)")
+                summaryPill(title: "主动", value: "\(today.qualifiedProactiveCount)")
                 summaryPill(title: "本周", value: "\(weekCompletedCount)")
                 summaryPill(title: "连续", value: "\(streakDays) 天")
                 Spacer(minLength: 0)
-                completionButton
             }
         }
         .padding(4)
@@ -84,15 +104,38 @@ struct SitRightWidgetEntryView: View {
             HStack(alignment: .firstTextBaseline) {
                 header
                 Spacer()
-                Text(todayStatusText)
+                Text("本周 \(weekCompletedCount) · 连续 \(streakDays) 天")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
             }
 
+            statusSummary
+
             HStack(spacing: 8) {
-                statCard(title: "今日", value: "\(today.completedCount)/\(dailyTarget)", systemImage: "figure.stand")
-                statCard(title: "本周", value: "\(weekCompletedCount)", systemImage: "calendar")
-                statCard(title: "连续", value: "\(streakDays) 天", systemImage: "flame.fill")
+                statCard(
+                    title: "今日活动",
+                    value: "\(today.dailyGoalActivityCount)/\(dailyTarget)",
+                    systemImage: "checkmark.circle.fill"
+                )
+                statCard(
+                    title: "提醒后活动",
+                    value: "\(today.reminderCompletedCount) 次",
+                    systemImage: "bell.badge.fill"
+                )
+                statCard(
+                    title: "主动活动",
+                    value: "\(today.qualifiedProactiveCount) 次",
+                    systemImage: "arrow.triangle.2.circlepath"
+                )
+            }
+
+            if today.legacyUnclassifiedCount > 0 {
+                Label(
+                    "未分类记录 \(today.legacyUnclassifiedCount) 次",
+                    systemImage: "archivebox"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -102,23 +145,74 @@ struct SitRightWidgetEntryView: View {
                 HeatmapView(history: entry.history, endDate: entry.date, dayCount: 365)
                     .frame(maxHeight: .infinity)
             }
-
-            HStack {
-                Spacer(minLength: 0)
-                completionButton
-            }
         }
         .padding(4)
     }
 
     private var header: some View {
         HStack(spacing: 7) {
-            Image(systemName: "figure.stand")
+            Image(systemName: "timer")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.green)
             Text("SitRight 坐正")
                 .font(.headline)
                 .lineLimit(1)
+        }
+    }
+
+    private var statusSummary: some View {
+        HStack(spacing: 6) {
+            Image(systemName: statusSymbol)
+                .foregroundStyle(.green)
+            Text(statusText)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("提醒状态")
+        .accessibilityValue(statusText)
+    }
+
+    private var statusText: String {
+        switch entry.snapshot.phase {
+        case .accumulating:
+            return entry.snapshot.nextReminderAt.map {
+                "下次提醒 \($0.formatted(date: .omitted, time: .shortened))"
+            } ?? "正在累计活动间隔"
+        case .delivering:
+            return "正在发送活动提醒"
+        case .awaitingResponse:
+            return "等待开始 1 分钟活动"
+        case .snoozed:
+            return "已延后 5 分钟"
+        case .guiding:
+            if let guideEndsAt = entry.snapshot.guideEndsAt {
+                return "活动进行中，还剩 \(max(Int(ceil(guideEndsAt.timeIntervalSince(entry.date))), 0)) 秒"
+            }
+            return "活动进行中"
+        case .overdue:
+            return "活动时间已到"
+        case .paused:
+            return "已暂停"
+        case .outsideSchedule:
+            return "非提醒时段"
+        case .disabled:
+            return "提醒已关闭"
+        case nil:
+            return entry.snapshot.statusText
+        }
+    }
+
+    private var statusSymbol: String {
+        switch entry.snapshot.phase {
+        case .guiding: return "timer"
+        case .paused: return "pause.circle"
+        case .disabled: return "power"
+        case .outsideSchedule: return "moon"
+        case .snoozed: return "clock.arrow.circlepath"
+        default: return "bell"
         }
     }
 
@@ -151,31 +245,22 @@ struct SitRightWidgetEntryView: View {
         .background(.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private var completionButton: some View {
-        Button(intent: MarkActivityCompleteIntent()) {
-            Label("完成", systemImage: "checkmark")
-                .font(.caption.weight(.semibold))
-        }
-        .buttonStyle(.bordered)
-        .tint(.green)
-        .disabled(!entry.snapshot.allowsWidgetCompletion)
-        .opacity(entry.snapshot.allowsWidgetCompletion ? 1 : 0.45)
-    }
-
     private var today: ActivityDay {
         entry.history.day(for: entry.date)
     }
 
     private var dailyTarget: Int {
-        max(entry.snapshot.dailyTarget, 1)
+        max(today.dailyTargetSnapshot ?? entry.snapshot.dailyTarget, 1)
     }
 
-    private var remainingToday: Int {
-        max(dailyTarget - today.completedCount, 0)
+    private var responsePercentageText: String {
+        guard let responseRate = today.responseRate else { return "暂无" }
+        return "\(Int((responseRate * 100).rounded()))%"
     }
 
-    private var todayStatusText: String {
-        remainingToday == 0 ? "今日目标已完成" : "还差 \(remainingToday) 次"
+    private var responseOpportunityText: String {
+        guard today.reminderOpportunityCount > 0 else { return "暂无提醒" }
+        return "响应 \(today.reminderCompletedCount)/\(today.reminderOpportunityCount)"
     }
 
     private var weekCompletedCount: Int {
@@ -228,14 +313,17 @@ struct HeatmapView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("活动热力图")
+        .accessibilityValue("最近 \(dayCount) 天完成 \(completedTotal) 次活动")
     }
 
     private func color(for day: ActivityDay?) -> Color {
-        guard let day, day.completedCount > 0 else {
+        guard let day, day.qualifiedActivityCount > 0 else {
             return Color.secondary.opacity(0.14)
         }
 
-        switch day.completedCount {
+        switch day.qualifiedActivityCount {
         case 1:
             return Color.green.opacity(0.35)
         case 2...3:
@@ -268,6 +356,11 @@ struct HeatmapView: View {
             return week
         }
     }
+
+    private var completedTotal: Int {
+        history.days(endingAt: endDate, count: dayCount, calendar: calendar)
+            .reduce(0) { $0 + $1.qualifiedActivityCount }
+    }
 }
 
 private extension ActivityHistory {
@@ -283,6 +376,15 @@ private extension ActivityHistory {
             guard count > 0 else { continue }
 
             var day = ActivityDay(dateKey: ActivityDay.makeDateKey(for: date, calendar: calendar))
+            day.reminderCycles = (0..<count).map { _ in
+                ReminderCycleRecord(
+                    id: UUID(),
+                    firstTriggeredAt: date,
+                    outcome: .completed,
+                    resolvedAt: date,
+                    completedAt: date
+                )
+            }
             day.completedCount = count
             day.lastCompletedAt = date
             history.upsert(day)
@@ -300,7 +402,7 @@ struct SitRightWidget: Widget {
             SitRightWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("SitRight 坐正")
-        .description("查看今日完成、年度活动热力图，并快速标记一次活动。")
+        .description("查看今日活动目标、提醒后活动、主动活动、本周统计和年度活动热力图。")
         .supportedFamilies([.systemMedium, .systemLarge])
     }
 }

@@ -4,18 +4,25 @@ import SwiftUI
 struct MenuPanelView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var statsStore: StatsStore
-    @EnvironmentObject private var engine: ReminderEngine
+    @ObservedObject private var refreshController: MenuPanelRefreshController
 
+    private let engine: ReminderEngine
+    private let onSelectedTabChanged: () -> Void
     @State private var selectedTab: PanelTab = .today
+
+    init(
+        engine: ReminderEngine,
+        refreshController: MenuPanelRefreshController,
+        onSelectedTabChanged: @escaping () -> Void = {}
+    ) {
+        self.engine = engine
+        self.refreshController = refreshController
+        self.onSelectedTabChanged = onSelectedTabChanged
+    }
 
     var body: some View {
         VStack(spacing: 14) {
             header
-
-            if let celebration = engine.celebrationText {
-                CelebrationBanner(text: celebration)
-                    .transition(.scale.combined(with: .opacity))
-            }
 
             Picker("视图", selection: $selectedTab) {
                 Label("今日", systemImage: "checkmark.circle").tag(PanelTab.today)
@@ -26,9 +33,9 @@ struct MenuPanelView: View {
 
             switch selectedTab {
             case .today:
-                TodayPanelView()
+                TodayPanelView(engine: engine)
             case .settings:
-                SettingsPanelView()
+                SettingsPanelView(engine: engine)
             }
 
             Divider()
@@ -37,8 +44,9 @@ struct MenuPanelView: View {
         }
         .padding(16)
         .frame(width: 370)
-        .background(.regularMaterial)
-        .animation(.snappy(duration: 0.22), value: engine.celebrationText)
+        .onChange(of: selectedTab) { _, _ in
+            onSelectedTabChanged()
+        }
     }
 
     private var header: some View {
@@ -47,17 +55,18 @@ struct MenuPanelView: View {
                 Circle()
                     .fill(.green.opacity(0.14))
                     .frame(width: 42, height: 42)
-                Image(systemName: "figure.stand")
+                Image(systemName: engine.celebrationText == nil ? engine.statusSystemImage : "sparkles")
                     .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(engine.celebrationText == nil ? .green : .orange)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("SitRight 坐正")
                     .font(.headline)
-                Text(engine.statusText)
+                Text(engine.celebrationText ?? engine.statusText)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(engine.celebrationText == nil ? Color.secondary : Color.orange)
+                    .lineLimit(1)
             }
 
             Spacer()
@@ -129,21 +138,4 @@ private struct StatusPill: View {
         }
     }
 
-}
-
-private struct CelebrationBanner: View {
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "sparkles")
-                .foregroundStyle(.orange)
-            Text(text)
-                .font(.subheadline.weight(.medium))
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
 }

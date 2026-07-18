@@ -35,10 +35,10 @@ final class TimeFormattingTests: XCTestCase {
     }
 
     func testMenuBarTitleLayoutUsesStatusTemplatesOutsideCountdown() {
-        XCTAssertEqual(MenuBarTitleLayout.measurementText(for: .due, remainingInterval: 0), "Move")
-        XCTAssertEqual(MenuBarTitleLayout.measurementText(for: .paused(until: nil), remainingInterval: 0), "Paused")
-        XCTAssertEqual(MenuBarTitleLayout.measurementText(for: .outsideHours, remainingInterval: 0), "Rest")
-        XCTAssertEqual(MenuBarTitleLayout.measurementText(for: .disabled, remainingInterval: 0), "Off")
+        XCTAssertEqual(MenuBarTitleLayout.measurementText(for: .due, remainingInterval: 0), "活动")
+        XCTAssertEqual(MenuBarTitleLayout.measurementText(for: .paused(until: nil), remainingInterval: 0), "暂停")
+        XCTAssertEqual(MenuBarTitleLayout.measurementText(for: .outsideHours, remainingInterval: 0), "休息")
+        XCTAssertEqual(MenuBarTitleLayout.measurementText(for: .disabled, remainingInterval: 0), "关闭")
     }
 
     func testMenuBarTitleLayoutUsesFixedWidthsByDisplayFormat() {
@@ -46,9 +46,9 @@ final class TimeFormattingTests: XCTestCase {
         XCTAssertEqual(MenuBarTitleLayout.fixedWidth(for: .running, remainingInterval: 3_599), 44)
         XCTAssertEqual(MenuBarTitleLayout.fixedWidth(for: .running, remainingInterval: 3_600), 62)
         XCTAssertEqual(MenuBarTitleLayout.fixedWidth(for: .running, remainingInterval: 36_000), 70)
-        XCTAssertEqual(MenuBarTitleLayout.fixedWidth(for: .paused(until: nil), remainingInterval: 0), 52)
+        XCTAssertEqual(MenuBarTitleLayout.fixedWidth(for: .paused(until: nil), remainingInterval: 0), 36)
         XCTAssertEqual(MenuBarTitleLayout.fixedWidth(for: .due, remainingInterval: 0), 36)
         XCTAssertEqual(MenuBarTitleLayout.fixedWidth(for: .outsideHours, remainingInterval: 0), 36)
-        XCTAssertEqual(MenuBarTitleLayout.fixedWidth(for: .disabled, remainingInterval: 0), 28)
+        XCTAssertEqual(MenuBarTitleLayout.fixedWidth(for: .disabled, remainingInterval: 0), 36)
     }
 }

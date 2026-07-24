@@ -52,6 +52,17 @@ build/SitRight.app
 build/SitRight.app/Contents/PlugIns/SitRightWidgetExtension.appex
 ```
 
+## 首次打开提示“Apple 无法验证”
+
+如果首次打开时出现“未打开 `SitRight.app`”或“Apple 无法验证 `SitRight.app` 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”：
+
+1. 点击“完成”关闭提示，不要选择“移到废纸篓”
+2. 打开“系统设置” → “隐私与安全性”
+3. 滑到页面底部，在安全性区域找到 `SitRight.app`，点击“仍要打开”
+4. 重新打开 `SitRight.app`
+
+仅在确认 App 来自本项目的 GitHub Releases 时执行以上操作。
+
 ## 添加桌面小组件
 
 1. 运行 `build/SitRight.app`

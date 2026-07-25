@@ -16,7 +16,7 @@ Current first-version capabilities include:
 - Workday, work-hour, and lunch-break scheduling.
 - Daily reminder-completion target, reminder response rate, manual activity count, and legacy unclassified history.
 - Launch-at-login toggle.
-- WidgetKit desktop widget for progress/history and activity completion when a reminder is due.
+- Display-only WidgetKit desktop widgets for today progress, reminder state, and 90-day or 365-day activity history.
 
 The app is intentionally lightweight and local-first. There is no backend service in this repository.
 
@@ -29,6 +29,8 @@ The app is intentionally lightweight and local-first. There is no backend servic
   - `SitRightWidgetExtension` app-extension target.
   - `SitRightTests` unit-test bundle.
 - `Scripts/build_app.sh` runs XcodeGen, builds Release through `xcodebuild`, stages the app, signs when an identity is available, verifies signatures, copies to `build/SitRight.app`, and removes derived data unless `SITRIGHT_KEEP_DERIVED_DATA=1`.
+- `Scripts/package_dmg.sh` serializes against the app build flow, rebuilds the Release app without installing it, and requires matching TeamIdentifier/App Group contracts for the App and Widget. It creates a draggable compressed HFS+ candidate DMG from an immutable staged app, verifies the image, read-only mounted contents, mounted signatures, and checksum, then publishes the DMG and `.sha256` pair without overwriting an existing valid pair on pre-publication failure.
+- The DMG script does not notarize or staple its output. Treat every generated image as an internal-test artifact until a Developer ID, Hardened Runtime, notarization, stapling, and quarantine launch chain is separately implemented and verified.
 - `.gitignore` excludes generated and local outputs including `SitRight.xcodeproj/`, `.build/`, `build/`, and `DerivedData/`.
 
 ## Runtime Composition
@@ -93,6 +95,7 @@ Shared App/Widget storage lives in `Sources/Shared`:
 
 - Packaged App/Widget processes require the App Group. Application Support fallback is limited to unbundled SwiftPM development runs.
 - App Group identifier: `973KFG9CL9.com.leon.SitRight`.
+- App and Widget must both be signed with TeamIdentifier `973KFG9CL9`; an ad-hoc signature can carry the entitlement text but macOS rejects its runtime App Group access.
 - `ActivityHistoryStore.fileName`: `SitRightActivityHistory.json`.
 - `ActivityHistoryStore.backupFileName`: `SitRightActivityHistory.backup.json`.
 - `WidgetSnapshotStore.fileName`: `SitRightWidgetSnapshot.json`.
@@ -108,14 +111,15 @@ The App and Widget must agree on shared model encoding. Treat changes to shared 
 The widget code lives in `Widget/`.
 
 - `SitRightWidgetProvider` loads `WidgetSnapshot` and `ActivityHistory`.
-- Supported widget families are `.systemMedium` and `.systemLarge`.
-- The widget is display-only and shows reminder completion, response rate, manual activity, week/streak statistics, and a one-year qualified-activity heatmap.
-- `WidgetSyncController` writes and reloads only when Widget-relevant snapshot fields change.
+- The existing annual widget keeps its stable kind and supports `.systemMedium` and `.systemLarge`.
+- A separate rolling 90-day widget supports `.systemLarge` only.
+- Both widgets are display-only and show the daily goal, reminder completions, qualified proactive activity, week/streak statistics, current reminder status, and qualified-activity heatmaps.
+- `WidgetSyncController` writes only when Widget-relevant snapshot fields change, then reloads both Widget kinds.
 
 Widget behavior depends on matching:
 
 - App Group entitlements in both app and widget.
-- `SitRightWidgetKind.activity`.
+- The stable values in `SitRightWidgetKind.allActivityKinds`.
 - Codable shapes in `WidgetSnapshot` and `ActivityHistory`.
 
 ## Tests

@@ -34,6 +34,21 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(changeCount, 4)
     }
 
+    func testCustomIntervalPersistsWithoutChangingEncodingFormat() {
+        let suiteName = "SitRightTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let store = SettingsStore(defaults: defaults)
+
+        store.update { $0.intervalMinutes = 55 }
+
+        XCTAssertEqual(store.settings.intervalMinutes, 55)
+        XCTAssertEqual(
+            SettingsStore(defaults: defaults).settings.intervalMinutes,
+            55
+        )
+    }
+
     func testOutOfRangeIntervalIsClampedOnce() {
         let suiteName = "SitRightTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

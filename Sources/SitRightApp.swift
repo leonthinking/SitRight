@@ -7,20 +7,22 @@ struct SitRightApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            SettingsPanelView()
+                .environmentObject(appDelegate.container.settingsStore)
+                .environmentObject(appDelegate.container.notificationManager)
+                .environmentObject(appDelegate.container.launchAtLoginController)
         }
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var container: AppContainer?
+    let container = AppContainer()
     private var statusBarController: StatusBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
 
-        let container = AppContainer()
-        self.container = container
         self.statusBarController = StatusBarController(container: container)
     }
 }

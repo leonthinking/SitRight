@@ -1,5 +1,21 @@
 import SwiftUI
 
+enum ReminderPopupActionAxis {
+    case horizontal
+    case vertical
+}
+
+enum ReminderPopupActionLayout {
+    static func actions(for axis: ReminderPopupActionAxis) -> [ReminderAction] {
+        switch axis {
+        case .horizontal:
+            return [.pausedToday, .snoozed, .completed]
+        case .vertical:
+            return [.completed, .snoozed, .pausedToday]
+        }
+    }
+}
+
 struct ReminderPopupView: View {
     let message: String
     let isGuiding: Bool
@@ -7,6 +23,7 @@ struct ReminderPopupView: View {
     let onAction: (ReminderAction) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(
         message: String,
@@ -21,6 +38,25 @@ struct ReminderPopupView: View {
     }
 
     var body: some View {
+        ViewThatFits(in: .vertical) {
+            popupContent
+                .fixedSize(horizontal: false, vertical: true)
+
+            ScrollView {
+                popupContent
+                    .padding(.trailing, 4)
+            }
+        }
+        .padding(28)
+        .frame(width: ReminderPanelSizingPolicy.width)
+        .background(.regularMaterial)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: message)
+        .onExitCommand {
+            onAction(.dismissed)
+        }
+    }
+
+    private var popupContent: some View {
         VStack(spacing: 18) {
             ZStack {
                 Circle()
@@ -30,10 +66,12 @@ struct ReminderPopupView: View {
                     .font(.system(size: 32, weight: .semibold))
                     .foregroundStyle(.green)
             }
+            .accessibilityHidden(true)
 
             VStack(spacing: 8) {
                 Text(isGuiding ? "活动进行中" : "到活动时间了")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .font(.title.weight(.bold))
+                    .fontDesign(.rounded)
                 Text(message)
                     .font(.title3.weight(.medium))
                     .multilineTextAlignment(.center)
@@ -50,46 +88,93 @@ struct ReminderPopupView: View {
                 }
             }
 
-            HStack(spacing: 10) {
-                if isGuiding {
-                    Button {
-                        onAction(.dismissed)
-                    } label: {
-                        Label("取消活动", systemImage: "xmark.circle")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.cancelAction)
-                } else {
-                    Button {
-                        onAction(.completed)
-                    } label: {
-                        Label("开始 1 分钟活动", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
+            actionSurface
+        }
+    }
 
-                    Button {
-                        onAction(.snoozed)
-                    } label: {
-                        Label("延后 5 分钟", systemImage: "clock.arrow.circlepath")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        onAction(.pausedToday)
-                    } label: {
-                        Label("暂停今天", systemImage: "moon")
-                    }
-                    .buttonStyle(.bordered)
-                }
+    @ViewBuilder
+    private var actionSurface: some View {
+        if isGuiding {
+            Button {
+                onAction(.dismissed)
+            } label: {
+                Label("取消活动", systemImage: "xmark.circle")
+            }
+            .buttonStyle(.bordered)
+            .keyboardShortcut(.cancelAction)
+        } else if dynamicTypeSize.isAccessibilitySize {
+            verticalActions
+        } else {
+            ViewThatFits(in: .horizontal) {
+                horizontalActions
+                verticalActions
             }
         }
-        .padding(28)
-        .frame(width: 420, height: 300)
-        .background(.regularMaterial)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: message)
-        .onExitCommand {
-            onAction(.dismissed)
+    }
+
+    private var horizontalActions: some View {
+        HStack(spacing: 10) {
+            ForEach(
+                ReminderPopupActionLayout.actions(for: .horizontal),
+                id: \.self
+            ) { action in
+                actionButton(action, fillsWidth: false)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var verticalActions: some View {
+        VStack(spacing: 10) {
+            ForEach(
+                ReminderPopupActionLayout.actions(for: .vertical),
+                id: \.self
+            ) { action in
+                actionButton(action, fillsWidth: true)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func actionButton(
+        _ action: ReminderAction,
+        fillsWidth: Bool
+    ) -> some View {
+        switch action {
+        case .completed:
+            Button {
+                onAction(.completed)
+            } label: {
+                Label(
+                    "开始 1 分钟活动",
+                    systemImage: "arrow.triangle.2.circlepath"
+                )
+                .frame(maxWidth: fillsWidth ? .infinity : nil)
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+
+        case .snoozed:
+            Button {
+                onAction(.snoozed)
+            } label: {
+                Label("延后 5 分钟", systemImage: "clock.arrow.circlepath")
+                    .frame(maxWidth: fillsWidth ? .infinity : nil)
+            }
+            .buttonStyle(.bordered)
+
+        case .pausedToday:
+            Button {
+                onAction(.pausedToday)
+            } label: {
+                Label("暂停今天", systemImage: "moon")
+                    .frame(maxWidth: fillsWidth ? .infinity : nil)
+            }
+            .buttonStyle(.bordered)
+
+        case .dismissed:
+            EmptyView()
         }
     }
 }

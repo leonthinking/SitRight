@@ -54,10 +54,34 @@ struct SitRightWidgetEntry: TimelineEntry {
     let history: ActivityHistory
 }
 
+enum SitRightHeatmapRange {
+    case recentQuarter
+    case recentYear
+
+    var title: String {
+        switch self {
+        case .recentQuarter:
+            "最近 3 个月"
+        case .recentYear:
+            "最近 1 年"
+        }
+    }
+
+    var dayCount: Int {
+        switch self {
+        case .recentQuarter:
+            90
+        case .recentYear:
+            365
+        }
+    }
+}
+
 struct SitRightWidgetEntryView: View {
     @Environment(\.widgetFamily) private var family
 
     let entry: SitRightWidgetEntry
+    let heatmapRange: SitRightHeatmapRange
 
     var body: some View {
         switch family {
@@ -85,7 +109,11 @@ struct SitRightWidgetEntryView: View {
 
             statusSummary
 
-            HeatmapView(history: entry.history, endDate: entry.date, dayCount: 365)
+            HeatmapView(
+                history: entry.history,
+                endDate: entry.date,
+                dayCount: heatmapRange.dayCount
+            )
                 .frame(maxHeight: .infinity)
 
             HStack(spacing: 12) {
@@ -139,10 +167,14 @@ struct SitRightWidgetEntryView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("最近一年")
+                Text(heatmapRange.title)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                HeatmapView(history: entry.history, endDate: entry.date, dayCount: 365)
+                HeatmapView(
+                    history: entry.history,
+                    endDate: entry.date,
+                    dayCount: heatmapRange.dayCount
+                )
                     .frame(maxHeight: .infinity)
             }
         }
@@ -399,17 +431,31 @@ struct SitRightWidget: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SitRightWidgetProvider()) { entry in
-            SitRightWidgetEntryView(entry: entry)
+            SitRightWidgetEntryView(entry: entry, heatmapRange: .recentYear)
         }
-        .configurationDisplayName("SitRight 坐正")
-        .description("查看今日活动目标、提醒后活动、主动活动、本周统计和年度活动热力图。")
+        .configurationDisplayName("SitRight 坐正 · 最近 1 年")
+        .description("查看今日活动、本周统计和最近 1 年活动热力图。")
         .supportedFamilies([.systemMedium, .systemLarge])
+    }
+}
+
+struct SitRightQuarterWidget: Widget {
+    let kind = SitRightWidgetKind.quarterActivity
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: SitRightWidgetProvider()) { entry in
+            SitRightWidgetEntryView(entry: entry, heatmapRange: .recentQuarter)
+        }
+        .configurationDisplayName("SitRight 坐正 · 最近 3 个月")
+        .description("查看今日活动、本周统计和最近 3 个月活动热力图。")
+        .supportedFamilies([.systemLarge])
     }
 }
 
 @main
 struct SitRightWidgetBundle: WidgetBundle {
     var body: some Widget {
+        SitRightQuarterWidget()
         SitRightWidget()
     }
 }

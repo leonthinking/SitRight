@@ -3,6 +3,19 @@ import XCTest
 
 @MainActor
 final class WidgetSnapshotTests: XCTestCase {
+    func testWidgetKindsRemainStableUniqueAndCompleteForReloading() {
+        XCTAssertEqual(SitRightWidgetKind.activity, "SitRightActivityWidget")
+        XCTAssertEqual(SitRightWidgetKind.quarterActivity, "SitRightQuarterActivityWidget")
+        XCTAssertEqual(
+            SitRightWidgetKind.allActivityKinds,
+            [SitRightWidgetKind.activity, SitRightWidgetKind.quarterActivity]
+        )
+        XCTAssertEqual(
+            Set(SitRightWidgetKind.allActivityKinds).count,
+            SitRightWidgetKind.allActivityKinds.count
+        )
+    }
+
     func testDueSnapshotProgressIsCompleteWhenNoNextReminderDate() {
         XCTAssertEqual(snapshot(state: .due, nextReminderAt: nil).progress(), 1)
     }

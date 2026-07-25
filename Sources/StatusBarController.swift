@@ -15,6 +15,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var lastStatusItemLength: CGFloat?
     private var lastStatusButtonPresentation: StatusBarButtonPresentation?
     private var lastAccessibilityValue: String?
+    private var popoverLayoutMeasurementState: PopoverLayoutMeasurementState?
 
     init(container: AppContainer) {
         self.container = container
@@ -31,14 +32,13 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private func configurePopover() {
         let rootView = MenuPanelView(
             engine: container.engine,
-            refreshController: menuPanelRefreshController
-        ) { [weak self] in
-            self?.schedulePopoverResize(for: .tabChange)
-        }
+            refreshController: menuPanelRefreshController,
+            onRequestClose: { [weak self] in
+                self?.popover.performClose(nil)
+            }
+        )
             .environmentObject(container.settingsStore)
             .environmentObject(container.statsStore)
-            .environmentObject(container.notificationManager)
-            .environmentObject(container.launchAtLoginController)
 
         let hostingController = NSHostingController(rootView: AnyView(rootView))
         hostingController.sizingOptions = StatusBarPopoverSizingPolicy.hostingSizingOptions
@@ -48,6 +48,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         popover.delegate = self
         popover.behavior = .transient
         popover.animates = false
+        popoverLayoutMeasurementState = PopoverLayoutMeasurementState(
+            signature: currentPopoverLayoutSignature()
+        )
         resizePopoverContent(for: .initialization)
     }
 
@@ -63,11 +66,34 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     }
 
     private func observeStatusChanges() {
+        // The projected @Published stream delivers the incoming phase before
+        // ReminderEngine requests the guide panel. Arm the presentation gate
+        // first so an asynchronous popover close cannot overlap or compete
+        // with the guide panel for focus.
+        container.engine.$phase
+            .removeDuplicates()
+            .sink { [weak self] phase in
+                guard let self,
+                      MenuPopoverVisibilityPolicy.shouldWaitForClose(
+                        for: phase,
+                        popoverLifecycleIsActive: self.menuPanelRefreshController.isActive
+                      ) else {
+                    return
+                }
+                self.container.reminderPresenter
+                    .waitForPopoverToCloseBeforePresentingGuide()
+                if self.popover.isShown {
+                    self.popover.performClose(nil)
+                }
+            }
+            .store(in: &cancellables)
+
         container.engine.objectWillChange
             .sink { [weak self] _ in
                 DispatchQueue.main.async {
                     self?.menuPanelRefreshController.engineDidChange()
                     self?.scheduleStatusButtonRefresh()
+                    self?.schedulePopoverResizeIfLayoutChanged()
                 }
             }
             .store(in: &cancellables)
@@ -76,6 +102,15 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             .sink { [weak self] _ in
                 DispatchQueue.main.async {
                     self?.scheduleStatusButtonRefresh()
+                    self?.schedulePopoverResizeIfLayoutChanged()
+                }
+            }
+            .store(in: &cancellables)
+
+        container.statsStore.objectWillChange
+            .sink { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.schedulePopoverResizeIfLayoutChanged()
                 }
             }
             .store(in: &cancellables)
@@ -176,14 +211,41 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         }
     }
 
+    private func schedulePopoverResizeIfLayoutChanged() {
+        let signature = currentPopoverLayoutSignature()
+        guard popoverLayoutMeasurementState?.shouldRequestMeasurement(
+            for: signature,
+            whilePopoverIsShown: popover.isShown
+        ) == true else {
+            return
+        }
+        schedulePopoverResize(for: .layoutChange)
+    }
+
+    private func currentPopoverLayoutSignature() -> MenuPanelLayoutSignature {
+        MenuPanelLayoutSignature(
+            engine: container.engine,
+            statsStore: container.statsStore
+        )
+    }
+
     private func resizePopoverContent(for trigger: StatusBarPopoverResizeTrigger) {
         guard StatusBarPopoverSizingPolicy.requestsMeasurement(for: trigger) else { return }
         guard let hostingController = popoverHostingController else { return }
 
-        let measuredSize = hostingController.sizeThatFits(
-            in: StatusBarPopoverSizingPolicy.fittingConstraint
+        let maximumHeight = StatusBarPopoverSizingPolicy.maximumHeight(
+            for: statusItem.button?.window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
         )
-        let fittedSize = StatusBarPopoverSizingPolicy.normalized(measuredSize)
+        let measuredSize = hostingController.sizeThatFits(
+            in: StatusBarPopoverSizingPolicy.fittingConstraint(maximumHeight: maximumHeight)
+        )
+        let fittedSize = StatusBarPopoverSizingPolicy.normalized(
+            measuredSize,
+            maximumHeight: maximumHeight
+        )
+        popoverLayoutMeasurementState?.synchronize(
+            with: currentPopoverLayoutSignature()
+        )
         guard popover.contentSize != fittedSize else { return }
         popover.contentSize = fittedSize
     }
@@ -205,6 +267,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         menuPanelRefreshController.setActive(false)
+        container.reminderPresenter.popoverDidCloseBeforeGuidePresentation()
     }
 }
 
@@ -212,6 +275,19 @@ struct StatusBarButtonPresentation: Equatable {
     let systemImageName: String
     let title: String
     let isAttentionState: Bool
+}
+
+enum MenuPopoverVisibilityPolicy {
+    static func shouldClose(for phase: ReminderPhase) -> Bool {
+        phase == .guiding
+    }
+
+    static func shouldWaitForClose(
+        for phase: ReminderPhase,
+        popoverLifecycleIsActive: Bool
+    ) -> Bool {
+        shouldClose(for: phase) && popoverLifecycleIsActive
+    }
 }
 
 @MainActor
@@ -234,22 +310,43 @@ final class MenuPanelRefreshController: ObservableObject {
 }
 
 enum StatusBarPopoverSizingPolicy {
-    static let fittingConstraint = NSSize(width: 370, height: 900)
+    static let width: CGFloat = 370
+    static let maximumContentHeight: CGFloat = 900
+    static let screenEdgeMargin: CGFloat = 24
     static let hostingSizingOptions: NSHostingSizingOptions = []
 
     static func requestsMeasurement(for trigger: StatusBarPopoverResizeTrigger) -> Bool {
         switch trigger {
-        case .initialization, .opening, .tabChange:
+        case .initialization, .opening, .layoutChange:
             return true
         case .engineTick:
             return false
         }
     }
 
-    static func normalized(_ measuredSize: NSSize) -> NSSize {
+    static func maximumHeight(for visibleFrame: NSRect?) -> CGFloat {
+        guard let visibleFrame else { return maximumContentHeight }
+        return min(
+            maximumContentHeight,
+            max(floor(visibleFrame.height - screenEdgeMargin), 1)
+        )
+    }
+
+    static func fittingConstraint(maximumHeight: CGFloat) -> NSSize {
         NSSize(
-            width: fittingConstraint.width,
-            height: min(max(ceil(measuredSize.height), 1), fittingConstraint.height)
+            width: width,
+            height: min(max(maximumHeight, 1), maximumContentHeight)
+        )
+    }
+
+    static func normalized(
+        _ measuredSize: NSSize,
+        maximumHeight: CGFloat = maximumContentHeight
+    ) -> NSSize {
+        let clampedMaximumHeight = min(max(maximumHeight, 1), maximumContentHeight)
+        return NSSize(
+            width: width,
+            height: min(max(ceil(measuredSize.height), 1), clampedMaximumHeight)
         )
     }
 }
@@ -257,7 +354,7 @@ enum StatusBarPopoverSizingPolicy {
 enum StatusBarPopoverResizeTrigger {
     case initialization
     case opening
-    case tabChange
+    case layoutChange
     case engineTick
 }
 
@@ -272,5 +369,22 @@ struct UpdateCoalescingGate {
 
     mutating func complete() {
         isScheduled = false
+    }
+}
+
+struct PopoverLayoutMeasurementState {
+    private(set) var signature: MenuPanelLayoutSignature
+
+    mutating func shouldRequestMeasurement(
+        for newSignature: MenuPanelLayoutSignature,
+        whilePopoverIsShown: Bool
+    ) -> Bool {
+        guard newSignature != signature else { return false }
+        signature = newSignature
+        return whilePopoverIsShown
+    }
+
+    mutating func synchronize(with newSignature: MenuPanelLayoutSignature) {
+        signature = newSignature
     }
 }

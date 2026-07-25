@@ -59,7 +59,9 @@ final class WidgetSyncController {
         lastSnapshot = snapshot
 
         if reloadTimelines {
-            WidgetCenter.shared.reloadTimelines(ofKind: SitRightWidgetKind.activity)
+            for kind in SitRightWidgetKind.allActivityKinds {
+                WidgetCenter.shared.reloadTimelines(ofKind: kind)
+            }
         }
     }
 }

@@ -201,7 +201,7 @@ struct TodayPanelView: View {
         .disabled(!canRecordManualActivity)
         .help(
             canRecordManualActivity
-                ? "主动开始 60 秒活动；完成后会计入目标并重新计时"
+                ? "主动开始 60 秒活动；完成后计入目标，通常保持原提醒时间"
                 : "当前状态不能记录主动活动"
         )
     }

@@ -166,9 +166,19 @@ final class StatusBarControllerTests: XCTestCase {
             showsLegacyRecords: false,
             showsResponseRate: true
         )
+        let availableUpdateLayout = MenuPanelLayoutSignature(
+            actionKind: .running,
+            hasCurrentReminder: false,
+            hasStatsError: false,
+            showsActivityBreakdown: false,
+            showsLegacyRecords: false,
+            showsResponseRate: false,
+            showsAvailableUpdate: true
+        )
 
         XCTAssertEqual(baseline, sameLayoutOnNextTick)
         XCTAssertNotEqual(baseline, reminderLayout)
+        XCTAssertNotEqual(baseline, availableUpdateLayout)
     }
 
     func testRepeatedEngineTicksDoNotRequestMeasurementUntilLayoutChanges() {

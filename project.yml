@@ -20,6 +20,11 @@ settings:
     CURRENT_PROJECT_VERSION: 7
     MARKETING_VERSION: "0.2.2"
 
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.9.2
+
 targets:
   SitRight:
     type: application
@@ -28,6 +33,7 @@ targets:
       - path: Sources
       - path: Assets.xcassets
     dependencies:
+      - package: Sparkle
       - target: SitRightWidgetExtension
         embed: true
         codeSign: true

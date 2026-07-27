@@ -8,5 +8,10 @@
     <array>
         <string>973KFG9CL9.com.leon.SitRight</string>
     </array>
+    <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+    <array>
+        <string>com.leon.SitRight-spki</string>
+        <string>com.leon.SitRight-spks</string>
+    </array>
 </dict>
 </plist>

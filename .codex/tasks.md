@@ -18,13 +18,35 @@ Use it for multi-step work, deferred follow-ups, and handoffs. Do not use it as 
 
 ## Backlog
 
-No tracked tasks yet.
+### TASK-20260725-launch-at-login-not-found
+
+- Status: Backlog
+- Goal: Diagnose why `SMAppService.mainApp.status` is `.notFound` for the correctly signed app running from `/Applications`, and replace the misleading packaged-app-only explanation with accurate recovery guidance.
+- Impacted areas: Launch-at-login service status interpretation, packaged update/install behavior, settings copy, and ServiceManagement regression/manual coverage.
+- Verification: Not started.
+- Handoff notes: The observed process path is `/Applications/SitRight.app/Contents/MacOS/SitRight`, bundle identifier is `com.leon.SitRight`, and TeamIdentifier is `973KFG9CL9`; do not treat `.notFound` as proof that the app is unbundled. Keep this investigation separate from the settings-window sizing task.
 
 ## Ready
 
 No tracked tasks yet.
 
 ## In Progress
+
+### TASK-20260725-proactive-activity-cadence
+
+- Status: Done
+- Goal: Keep proactive activity as an additional healthy action without normally replacing the existing reminder cadence, while suppressing an immediately redundant reminder inside a 10-minute protection window.
+- Impacted areas: ReminderEngine cadence and guide completion rules, runtime checkpoint recovery, menu/accessibility feedback, Widget snapshot timing, README, and regression coverage.
+- Verification: Deterministic cadence and completion-window acceptance passed, including actual-deadline `>`/`=`/`<` 10-minute boundaries, schedule crossing, cancellation, overdue cooldown, lock/sleep, restart, notification failure, no-channel delivery, Widget snapshots, and completion-panel lifecycle. `ReminderEngineTests` passed 42/42; `swift test --disable-sandbox` passed 183/183; `./Scripts/build_app.sh` completed with `** BUILD SUCCEEDED **` and verified the App/Widget TeamIdentifier `973KFG9CL9`; strict signatures, matching App Group entitlements, arm64 binaries, and `git diff --check` passed. Two independent adversarial reviews completed and all confirmed P1/P2 findings were repaired and re-reviewed with no remaining P0-P2.
+- Handoff notes: No user setting or AppSettings/history/Widget Codable format changed. Prompted completion starts a fresh interval; proactive completion preserves the actual scheduled reminder unless it is no more than 10 minutes away or cadence is already due. The signed artifact is at `build/SitRight.app` and was not installed over the user's live app or used to mutate live App Group activity history.
+
+### TASK-20260725-resizable-settings-window
+
+- Status: Done
+- Goal: Rename the General settings pane to 通用, show the normal settings content without default scrolling, and allow the standard Settings window to resize in both dimensions.
+- Impacted areas: Settings Scene sizing/restoration, Settings panel layout and labels, route compatibility, accessibility fallback scrolling, and focused presentation tests.
+- Verification: Production Settings hosting and presentation regressions cover the `520×800` default, `460×520` minimum, flexible resizing, visible `通用` title, legacy `schedule` routing, one-time Work Schedule focus, scrolling fallback, and shared tab-window sizing. The combined community-release verification runs the full Swift suite and signed packaged build.
+- Handoff notes: The `general` and legacy `schedule` raw values, existing AppStorage keys, one-time Work Schedule scroll/focus route, immediate persistence, and accessibility scrolling remain compatible.
 
 ### TASK-20260723-verified-dmg-packaging
 
@@ -43,6 +65,22 @@ No tracked tasks yet.
 - Handoff notes: Preserve existing saved interval and delivery preferences; apply 50 minutes, notifications on, sound off, and strong popup off only to fresh installs. Do not edit the generated Xcode project. Packaged notification authorization/action, VoiceOver, lock/sleep, and widget visual checks remain manual follow-up because they require running the signed app and changing system state.
 
 ## Done
+
+### TASK-20260727-github-community-updates
+
+- Status: Done
+- Goal: Add a Sparkle 2.9.2 GitHub community-preview update path with daily gentle checks, an About settings pane, verified local release assets, and a confirmation-gated GitHub Release step.
+- Impacted areas: App lifecycle and menu/settings presentation, Sparkle dependency and sandbox services, nested signing, DMG staging, local appcast/ZIP publication scripts, README, and security/compatibility regression coverage.
+- Verification: Script syntax, plist lint, and `git diff --check` passed; `swift test --disable-sandbox` passed 198/198, including short-sleep guide-deadline synchronization before and after the menu popover closes, interrupted Draft-to-public recovery, and rejection of recovery state that does not match the current manifest and remote tag. `./Scripts/build_app.sh` and `OPEN_DMG_ON_SUCCESS=0 ./Scripts/package_dmg.sh` passed with strict nested Sparkle/App/Widget signatures, exact sandbox/App Group/Mach entitlements, TeamIdentifier `973KFG9CL9`, arm64 architecture, and a two-entry read-only DMG. The release scripts now reacquire the fixed Sparkle 2.9.2 official SwiftPM archive with checksum `b83e37436774556ed055e0244b297ef2c790e0737393bf65bf495fcbba6eed65`, bind individual release-tool hashes into the immutable manifest, and preserve a hard-blocking recovery record when GitHub publication state cannot be confirmed. An isolated committed candidate produced and verified a signed local appcast/ZIP/DMG set; the hardened publication verifier accepted the complete assets and prior ZIP/appcast tamper probes were rejected. The final published hashes are bound to the same immutable Release asset set in `SHA256SUMS`, rather than copied into this source task board. Publication confirmation/authentication gates were exercised without changing GitHub. Independent adversarial reviews found release atomicity, target-repository, revalidation, key-backup, immutable-candidate/Release Notes/source-build TOCTOU, actual-latest selection, final-App security-setting, update-status, mutable release-tool input, public-transition recovery, recovery-state authorization, and guide deadline issues; all confirmed findings were repaired with focused regression coverage.
+- Handoff notes: `0.2.2 (7)` / `v0.2.2` is the designated first update-enabled community preview. It remains a manual-install bootstrap; a real lower-to-higher replacement/relaunch test requires a later build. Publication must use the confirmation-gated local scripts, a restore-tested offline Sparkle-key backup, and the system-keyring `gh` environment. Preserve activity/settings/Widget storage formats and all unrelated `Marketing/` work.
+
+### TASK-20260725-guide-window-content
+
+- Status: Done
+- Goal: Prevent the activity guide panel from collapsing to an empty title bar when a manually sized SwiftUI hosting controller is attached.
+- Impacted areas: Reminder panel construction, controlled AppKit/SwiftUI sizing, action/close lifecycle, and focused presentation regression coverage.
+- Verification: Focused guide/presentation/engine tests passed 11/11; `swift test --disable-sandbox` passed 157/157; `./Scripts/build_app.sh` completed with `** BUILD SUCCEEDED **`, produced and installed an App/Widget pair with TeamIdentifier `973KFG9CL9`, and the installed App was relaunched from `/Applications/SitRight.app`; `git diff --check` passed. An isolated production-source UI smoke rendered the guide at 420×300 with the icon, title, body, live countdown, and cancel action visible. Two independent adversarial reviews completed; the confirmed single-callback/window-cleanup and natural countdown-tick coverage gaps were repaired and re-reviewed with no remaining P0-P3.
+- Handoff notes: Keep automatic hosting sizing disabled. `ReminderPanelFactory` must attach the hosting controller before reapplying the measured content size, and `ReminderPresenter` must consume each completion once before closing its panel. The installed status-menu-to-guide interaction was not completed because the local Computer Use runtime was unavailable and the transient popover was not exposed as an accessibility window; avoid claiming that specific interactive path passed without a user-visible smoke check.
 
 ### TASK-20260725-merge-general-schedule-settings
 

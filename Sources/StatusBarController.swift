@@ -39,6 +39,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         )
             .environmentObject(container.settingsStore)
             .environmentObject(container.statsStore)
+            .environmentObject(container.updateController)
 
         let hostingController = NSHostingController(rootView: AnyView(rootView))
         hostingController.sizingOptions = StatusBarPopoverSizingPolicy.hostingSizingOptions
@@ -110,6 +111,15 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         container.statsStore.objectWillChange
             .sink { [weak self] _ in
                 DispatchQueue.main.async {
+                    self?.schedulePopoverResizeIfLayoutChanged()
+                }
+            }
+            .store(in: &cancellables)
+
+        container.updateController.objectWillChange
+            .sink { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.menuPanelRefreshController.externalContentDidChange()
                     self?.schedulePopoverResizeIfLayoutChanged()
                 }
             }
@@ -225,7 +235,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private func currentPopoverLayoutSignature() -> MenuPanelLayoutSignature {
         MenuPanelLayoutSignature(
             engine: container.engine,
-            statsStore: container.statsStore
+            statsStore: container.statsStore,
+            showsAvailableUpdate:
+                container.updateController.availableVersion != nil
         )
     }
 
@@ -304,6 +316,11 @@ final class MenuPanelRefreshController: ObservableObject {
     }
 
     func engineDidChange() {
+        guard isActive else { return }
+        objectWillChange.send()
+    }
+
+    func externalContentDidChange() {
         guard isActive else { return }
         objectWillChange.send()
     }

@@ -23,14 +23,16 @@ The app is intentionally lightweight and local-first. There is no backend servic
 ## Build and Configuration
 
 - `Package.swift` targets macOS 14 and Swift 6, with executable target `SitRight` and test target `SitRightTests`.
+- Sparkle is pinned to 2.9.2 in `Package.swift`, `Package.resolved`, and `project.yml`.
 - `project.yml` is the source of truth for the generated Xcode project.
 - The generated Xcode project contains:
   - `SitRight` app target.
   - `SitRightWidgetExtension` app-extension target.
   - `SitRightTests` unit-test bundle.
-- `Scripts/build_app.sh` runs XcodeGen, builds Release through `xcodebuild`, stages the app, signs when an identity is available, verifies signatures, copies to `build/SitRight.app`, and removes derived data unless `SITRIGHT_KEEP_DERIVED_DATA=1`.
-- `Scripts/package_dmg.sh` serializes against the app build flow, rebuilds the Release app without installing it, and requires matching TeamIdentifier/App Group contracts for the App and Widget. It creates a draggable compressed HFS+ candidate DMG from an immutable staged app, verifies the image, read-only mounted contents, mounted signatures, and checksum, then publishes the DMG and `.sha256` pair without overwriting an existing valid pair on pre-publication failure.
-- The DMG script does not notarize or staple its output. Treat every generated image as an internal-test artifact until a Developer ID, Hardened Runtime, notarization, stapling, and quarantine launch chain is separately implemented and verified.
+- `Scripts/build_app.sh` runs XcodeGen, builds Release through `xcodebuild`, stages the app, signs Sparkle's XPC/Updater/Autoupdate/Framework in nested order before the Widget and App, verifies signatures, copies to `build/SitRight.app`, and removes derived data unless `SITRIGHT_KEEP_DERIVED_DATA=1`.
+- `Scripts/package_dmg.sh` serializes against the app build flow, rebuilds the Release app without installing it, and requires matching TeamIdentifier/App Group contracts for the App and Widget plus the same TeamIdentifier across all Sparkle components. It creates a draggable compressed HFS+ candidate DMG whose top level contains only `SitRight.app` and `Applications`, verifies the image, read-only mounted contents, mounted signatures, and checksum, then publishes the DMG and `.sha256` pair without overwriting an existing valid pair on pre-publication failure.
+- `Scripts/package_update.sh` prepares but never uploads a signed community-update DMG, app-only ZIP, signed appcast, and SHA-256 manifest from a `git archive` snapshot of the captured committed arm64 candidate; it snapshots Release Notes, downloads the fixed Sparkle 2.9.2 official tool archive with its pinned SwiftPM checksum, binds individual tool hashes into the manifest, and rechecks the source tree before promoting assets. `Scripts/publish_update_release.sh` is a separate confirmation-gated GitHub operation pinned to `leonthinking/SitRight`; it snapshots all upload assets and Release Notes, independently reacquires and verifies the same Sparkle tools, requires an authenticated `gh`, a matching pushed tag, an increasing build number relative to GitHub's actual `latest` Release, complete reverified assets, and uses a verified Draft before the final non-Prerelease publication step.
+- The standalone DMG script does not notarize or staple its output, so its ordinary output remains an internal-test artifact. A versioned image produced through the explicitly authorized community-release flow may be published for manual GitHub download, but it is still not Developer ID signed, notarized, stapled, or Gatekeeper-trusted.
 - `.gitignore` excludes generated and local outputs including `SitRight.xcodeproj/`, `.build/`, `build/`, and `DerivedData/`.
 
 ## Runtime Composition
@@ -38,6 +40,7 @@ The app is intentionally lightweight and local-first. There is no backend servic
 `Sources/SitRightApp.swift` is the app entry point.
 
 - `AppDelegate` sets activation policy to `.accessory` so the app has no Dock icon, creates `AppContainer`, and retains `StatusBarController`.
+- After `applicationDidFinishLaunching`, `AppDelegate` starts the single `UpdateController`; Sparkle is not started during container construction.
 - `StatusBarController` owns a native `NSStatusItem` and a persistent `NSPopover` that hosts the existing SwiftUI menu panel.
 - The popover is pre-sized, does not animate when shown, and reuses its hosting controller between clicks so opening the menu does not rebuild the panel.
 - `MenuBarStatusLabel` remains the shared SwiftUI status label and is embedded in the native status-item button through a click-through `NSHostingView`.
@@ -48,11 +51,23 @@ The app is intentionally lightweight and local-first. There is no backend servic
 - `SettingsStore`
 - `StatsStore`
 - `NotificationManager`
+- `UpdateController`
 - `ReminderPresenter`
 - `WidgetSyncController`
 - `ReminderEngine`
 
 `ReminderEngine.start()` is called during container initialization.
+
+## Community Update Flow
+
+- Update source: `https://github.com/leonthinking/SitRight/releases/latest/download/appcast.xml`.
+- Sparkle performs a scheduled check at most every 24 hours. Automatic checks use a gentle menu-panel indicator; user-initiated checks use Sparkle's standard UI.
+- Automatic downloading is disallowed. Downloads and installation require explicit user confirmation. Update archives and the appcast, including embedded reviewed release notes, are EdDSA signed; signature failures cannot downgrade to unsigned updates.
+- The Settings raw value `about` is stable. Existing `general`, `notifications`, and legacy `schedule` routing remain compatible.
+- The public EdDSA key is embedded in `AppBundle/Info.plist`. The matching private key is stored only in the local Keychain account `com.leon.SitRight` and requires an offline recovery backup before the bootstrap Release.
+- The GitHub community preview is not Developer ID signed or notarized. The first update-enabled build must still be installed manually; subsequent builds can update in app.
+- `package_update.sh` presents only the ZIP to `generate_appcast`, then adds the manually installable DMG after the signed feed is verified. `publish_update_release.sh` requires the GitHub Release notes to match the notes hash recorded for the signed appcast and revalidates the local and uploaded assets. It records the final Draft-to-public transition in persistent local recovery state; a failed transition is restored to Draft when GitHub is reachable, while an unconfirmable remote state blocks later publication for manual resolution.
+- No GitHub Actions release workflow is used. Apple and Sparkle private keys must never enter the repository, logs, or GitHub Release assets.
 
 ## Core Behavior
 
@@ -63,7 +78,10 @@ The app is intentionally lightweight and local-first. There is no backend servic
 - A one-second timer drives the in-memory countdown through `tick()`; shared files are only updated when Widget-relevant fields change.
 - Scheduling uses `SchedulePolicy` inside `ReminderEngine`.
 - `completeCurrentReminder()` only accepts a pending cycle and relies on its stable ID for idempotency.
-- `recordManualActivity()` is available only while reminders are running with no pending response; it resets the timer and remains locked for one full reminder interval.
+- `recordManualActivity()` is available while reminders are running with no pending response. A completed proactive guide normally preserves the existing reminder deadline while its eligible 60 seconds continue advancing the cadence clock.
+- If a proactive guide completes with no more than 10 minutes remaining, it satisfies the upcoming reminder without creating a reminder opportunity and starts a fresh interval. A prompted guide completion always resolves its reminder cycle and starts a fresh interval.
+- Cancelling a proactive guide records no activity and preserves the cadence; if the cadence became due during the guide, normal reminder delivery resumes after dismissal.
+- A proactive guide that crosses out of an allowed work period still records the completed activity, while cadence reset and the completion feedback follow the existing work-schedule rules instead of promising an unchanged reminder time.
 - Snooze is currently 5 minutes by default and reuses the current cycle, so repeated snoozes do not add response-rate opportunities.
 - Popup actions are handled through `ReminderAction`.
 - Indefinite and timed pause state is persisted by `ReminderSessionStateStore` and restored after relaunch.
@@ -127,18 +145,20 @@ Widget behavior depends on matching:
 Current tests cover:
 
 - `SettingsStoreTests`: defaults, normalization, persistence, callback behavior, schedule-change detection.
-- `ReminderEngineTests`: pause restoration, due-state cleanup, delivery success/failure, reminder-cycle idempotency, manual-activity rate limiting, restart recovery, work-hour/lunch/weekend scheduling, and snooze reuse.
+- `ReminderEngineTests`: pause restoration, due-state cleanup, delivery success/failure, reminder-cycle idempotency, proactive cadence preservation and 10-minute protection, restart recovery, work-hour/lunch/weekend scheduling, and snooze reuse.
 - `StatsStoreTests`: date-boundary refresh, cycle/manual persistence, cross-day settlement, compatibility mirroring, and storage-error surfacing.
 - `ActivityHistoryTests`: daily counts, reminder-cycle outcomes/response metrics, legacy migration, week/streak qualification, tolerant decoding, backup recovery, and concurrent idempotent file persistence.
 - `TimeFormattingTests`: countdown and menu bar fixed-width formatting.
 - `WidgetSnapshotTests`: tolerant legacy decoding, trusted metric publication, response/progress calculation, and duplicate-write prevention.
+- `UpdateControllerTests`: feed/public-key configuration, delayed lifecycle start, gentle reminder state, manual session feedback, and disabled misconfiguration behavior.
+- `PackagingContractTests`: Sparkle version/feed/entitlement contracts, nested signing, DMG contents, local appcast assets, publication confirmation, and rollback ordering.
 
 There is no automated test coverage yet for:
 
-- SwiftUI view rendering.
 - Real system notification delivery/permission UI.
 - Launch-at-login behavior.
 - Full WidgetKit timeline rendering.
+- A real two-version Sparkle replacement/relaunch on a clean macOS account.
 
 Use this gap when deciding whether a manual packaged build is needed for a change.
 

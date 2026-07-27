@@ -22,9 +22,35 @@ enum ReminderPhase: String, Codable, Equatable, Sendable {
 
 enum ReminderTiming {
     static let guidedActivityDuration: TimeInterval = 60
+    static let completionFeedbackDuration: TimeInterval = 6
     static let responseWindow: TimeInterval = 10 * 60
+    static let proactiveReminderProtectionWindow: TimeInterval = 10 * 60
     static let snoozeDuration: TimeInterval = 5 * 60
     static let longSuspensionThreshold: TimeInterval = 10 * 60
+}
+
+enum ActivityGuideCompletionOutcome: Equatable {
+    case reminderResponse
+    case proactivePreservingCadence
+    case proactiveSatisfyingUpcomingReminder
+    case proactiveFollowingSchedule
+
+    var celebrationText: String {
+        switch self {
+        case .reminderResponse:
+            return "做得好，已完成 1 分钟活动。下一轮提醒已开始。"
+        case .proactivePreservingCadence:
+            return "做得好，已完成 1 分钟主动活动。原提醒时间不变。"
+        case .proactiveSatisfyingUpcomingReminder:
+            return "做得好，已完成 1 分钟主动活动。本轮提醒已满足。"
+        case .proactiveFollowingSchedule:
+            return "做得好，已完成 1 分钟主动活动。提醒将按工作时段继续。"
+        }
+    }
+
+    var accessibilityAnnouncement: String {
+        celebrationText
+    }
 }
 
 @MainActor
@@ -65,6 +91,8 @@ extension NotificationManager: ReminderNotificationManaging {}
 protocol ReminderPresenting: AnyObject {
     func present(message: String, completion: @escaping (ReminderAction) -> Void)
     func presentGuide(endsAt: Date, completion: @escaping (ReminderAction) -> Void)
+    func updateGuide(endsAt: Date)
+    func presentGuideCompletion(message: String)
     func dismiss()
 }
 
@@ -74,6 +102,10 @@ extension ReminderPresenting {
     func presentGuide(endsAt: Date, completion: @escaping (ReminderAction) -> Void) {
         present(message: "按你的身体状况，换个姿势或活动 60 秒。", completion: completion)
     }
+
+    func updateGuide(endsAt: Date) {}
+
+    func presentGuideCompletion(message: String) {}
 }
 
 @MainActor
@@ -414,6 +446,10 @@ final class ReminderEngine: ObservableObject {
         return true
     }
 
+    var isProactiveGuide: Bool {
+        phase == .guiding && guideActivityID != nil && guideCycleID == nil
+    }
+
     var countdownText: String {
         switch state {
         case .paused:
@@ -570,17 +606,25 @@ final class ReminderEngine: ObservableObject {
             cancelGuide()
             resetCadence()
             lastDateKey = dateKey
+            lastTickAt = date
+            lastTickWasAllowed = SchedulePolicy.isAllowed(
+                date,
+                settings: settings
+            )
+            phase = .accumulating
+            state = .running
         }
 
         if phase == .guiding {
             let delta = max(date.timeIntervalSince(lastTickAt ?? previousNow), 0)
+            advanceProactiveCadenceDuringGuide(to: date)
             guideElapsedSeconds = min(guideElapsedSeconds + delta, ReminderTiming.guidedActivityDuration)
             announceGuideMilestonesIfNeeded()
             lastTickAt = date
             if guideElapsedSeconds >= ReminderTiming.guidedActivityDuration {
                 completeGuidedActivity(at: date)
             }
-            publishWidgetSnapshot()
+            persistRuntimeCheckpoint()
             return
         }
 
@@ -750,10 +794,17 @@ final class ReminderEngine: ObservableObject {
         case .dismissed:
             if phase == .guiding {
                 let actionDate = nowProvider()
+                advanceProactiveCadenceDuringGuide(to: actionDate)
                 resolveActiveReminder(as: .skipped, at: actionDate)
                 cancelGuide()
                 clearActiveReminder()
+                lastTickAt = actionDate
+                lastTickWasAllowed = SchedulePolicy.isAllowed(
+                    actionDate,
+                    settings: settingsStore.settings
+                )
                 refreshScheduleState(at: actionDate)
+                persistRuntimeCheckpoint()
                 publishWidgetSnapshot()
             } else {
                 clearActiveReminder()
@@ -817,12 +868,12 @@ final class ReminderEngine: ObservableObject {
         refreshScheduleState(at: baseDate)
     }
 
-    private func showCelebration(manual: Bool = false) {
+    private func showCelebration(for outcome: ActivityGuideCompletionOutcome) {
         celebrationTask?.cancel()
-        celebrationText = manual ? "已记录一次自主活动。" : ReminderMessages.randomCelebration()
+        celebrationText = outcome.celebrationText
 
         celebrationTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.4))
+            try? await Task.sleep(for: .seconds(ReminderTiming.completionFeedbackDuration))
             guard !Task.isCancelled else { return }
             celebrationText = nil
         }
@@ -1048,6 +1099,37 @@ final class ReminderEngine: ObservableObject {
         persistRuntimeCheckpoint()
     }
 
+    private func advanceProactiveCadenceDuringGuide(to date: Date) {
+        guard guideActivityID != nil, guideCycleID == nil else { return }
+
+        let previousDate = lastTickAt ?? date
+        let elapsed = max(date.timeIntervalSince(previousDate), 0)
+        let settings = settingsStore.settings
+        let allowedNow = SchedulePolicy.isAllowed(date, settings: settings)
+        let continuouslyAllowed = lastTickWasAllowed
+            && SchedulePolicy.isContinuouslyAllowed(
+                from: previousDate,
+                through: date,
+                settings: settings
+            )
+
+        if continuouslyAllowed {
+            accumulatedEligibleSeconds = min(
+                accumulatedEligibleSeconds + elapsed,
+                reminderThreshold
+            )
+            opportunityCooldownSeconds = max(
+                opportunityCooldownSeconds - elapsed,
+                0
+            )
+        } else if lastTickWasAllowed && elapsed > 0 {
+            resetCadence()
+        }
+
+        lastTickWasAllowed = allowedNow
+        lastTickAt = date
+    }
+
     private func completeGuidedActivity(at date: Date) {
         let wasProactive = guideCycleID == nil
         guard let activityID = guideActivityID,
@@ -1063,14 +1145,54 @@ final class ReminderEngine: ObservableObject {
         if let cycleID = guideCycleID {
             notificationManager.cancelReminder(cycleID: cycleID)
         }
+        let isAllowedAtCompletion = SchedulePolicy.isAllowed(
+            date,
+            settings: settingsStore.settings
+        )
+        let secondsUntilUpcomingReminder: TimeInterval?
+        if let nextReminderAt {
+            secondsUntilUpcomingReminder = max(
+                nextReminderAt.timeIntervalSince(date),
+                0
+            )
+        } else if accumulatedEligibleSeconds >= reminderThreshold,
+                  opportunityCooldownSeconds == 0 {
+            // A blocked delivery channel can leave the cadence already due
+            // without a concrete deadline. Completing an activity still
+            // satisfies that due round instead of leaving the UI overdue.
+            secondsUntilUpcomingReminder = 0
+        } else {
+            secondsUntilUpcomingReminder = nil
+        }
+        let proactiveActivitySatisfiesUpcomingReminder =
+            wasProactive
+            && isAllowedAtCompletion
+            && secondsUntilUpcomingReminder.map {
+                $0 <= ReminderTiming.proactiveReminderProtectionWindow
+            } == true
+        let completionOutcome: ActivityGuideCompletionOutcome
+        if !wasProactive {
+            completionOutcome = .reminderResponse
+        } else if !isAllowedAtCompletion {
+            completionOutcome = .proactiveFollowingSchedule
+        } else if proactiveActivitySatisfiesUpcomingReminder {
+            completionOutcome = .proactiveSatisfyingUpcomingReminder
+        } else {
+            completionOutcome = .proactivePreservingCadence
+        }
+
         activeReminderCycle = nil
         cancelGuide()
-        clearActiveReminder()
-        resetCadence()
+        reminderShowing = false
+        currentReminderText = nil
+        if !wasProactive || proactiveActivitySatisfiesUpcomingReminder {
+            resetCadence()
+        }
         lastTickAt = date
         lastTickWasAllowed = SchedulePolicy.isAllowed(date, settings: settingsStore.settings)
-        showCelebration(manual: wasProactive)
-        ReminderAccessibility.announce("活动完成")
+        showCelebration(for: completionOutcome)
+        reminderPresenter.presentGuideCompletion(message: completionOutcome.celebrationText)
+        ReminderAccessibility.announce(completionOutcome.accessibilityAnnouncement)
         refreshScheduleState(at: date)
         updateTodaySnapshot(at: date)
         persistRuntimeCheckpoint()
@@ -1124,8 +1246,16 @@ final class ReminderEngine: ObservableObject {
             }
             return
         }
+        if accumulatedEligibleSeconds >= reminderThreshold {
+            state = .due
+            phase = .overdue
+            nextReminderAt = opportunityCooldownSeconds > 0
+                ? date.addingTimeInterval(opportunityCooldownSeconds)
+                : (deliveryBlocked ? nil : date)
+            return
+        }
         state = .running
-        phase = accumulatedEligibleSeconds >= reminderThreshold ? .overdue : .accumulating
+        phase = .accumulating
         refreshNextReminderDate(at: date)
     }
 
@@ -1247,6 +1377,15 @@ final class ReminderEngine: ObservableObject {
                     ReminderTiming.guidedActivityDuration
                 )
             }
+            if wasSleep, phase == .guiding {
+                let remainingGuideDuration = max(
+                    ReminderTiming.guidedActivityDuration - guideElapsedSeconds,
+                    0
+                )
+                reminderPresenter.updateGuide(
+                    endsAt: date.addingTimeInterval(remainingGuideDuration)
+                )
+            }
             if let cycle = activeReminderCycle,
                statsStore.shiftReminderCycleWindow(id: cycle.id, by: duration) {
                 activeReminderCycle = statsStore.latestPendingCycle
@@ -1261,20 +1400,8 @@ final class ReminderEngine: ObservableObject {
 private enum ReminderMessages {
     static let reminder = "到活动时间了。按你的身体状况，换个姿势或活动 60 秒。"
 
-    static let celebrations = [
-        "完成一次活动 🎉",
-        "完成 60 秒活动。",
-        "很好，完成了一次活动。",
-        "完成，继续按自己的节奏活动。",
-        "60 秒活动已记录。"
-    ]
-
     static func randomReminder() -> String {
         reminder
-    }
-
-    static func randomCelebration() -> String {
-        celebrations.randomElement() ?? celebrations[0]
     }
 }
 

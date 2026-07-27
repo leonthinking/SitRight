@@ -162,6 +162,126 @@ verify_app_group_team_identifier() {
   fi
 }
 
+verify_expected_team_identifier() {
+  local target="$1"
+  local label="$2"
+  local team_identifier
+
+  team_identifier="$(team_identifier_for "$target")"
+  if [ "$team_identifier" != "$EXPECTED_TEAM_IDENTIFIER" ]; then
+    echo "$label requires TeamIdentifier=$EXPECTED_TEAM_IDENTIFIER, got ${team_identifier:-not-set}" >&2
+    return 1
+  fi
+}
+
+verify_no_debug_entitlement() {
+  local target="$1"
+  local label="$2"
+  local entitlements
+  local debug_allowed
+
+  entitlements="$(/usr/bin/codesign -d --entitlements :- "$target" 2>/dev/null)" || return 1
+  debug_allowed="$(
+    /usr/bin/plutil \
+      -extract "com\\.apple\\.security\\.get-task-allow" \
+      raw \
+      -o - \
+      - <<<"$entitlements" 2>/dev/null || true
+  )"
+  if [ "$debug_allowed" = "true" ]; then
+    echo "$label contains the debugging entitlement com.apple.security.get-task-allow" >&2
+    return 1
+  fi
+}
+
+verify_sparkle_components() {
+  local app_path="$1"
+  local require_expected_team="${2:-0}"
+  local framework_path="$app_path/Contents/Frameworks/Sparkle.framework"
+  local framework_version="$framework_path/Versions/Current"
+  local target
+  local label
+
+  if [ ! -d "$framework_path" ]; then
+    echo "Sparkle.framework is missing: $framework_path" >&2
+    return 1
+  fi
+
+  while IFS='|' read -r target label; do
+    if [ ! -e "$target" ]; then
+      echo "$label is missing: $target" >&2
+      return 1
+    fi
+    /usr/bin/codesign --verify --strict "$target" || return 1
+    verify_no_debug_entitlement "$target" "$label" || return 1
+    if [ "$require_expected_team" = "1" ]; then
+      verify_expected_team_identifier "$target" "$label" || return 1
+    fi
+  done <<EOF
+$framework_version/XPCServices/Downloader.xpc|Sparkle Downloader.xpc
+$framework_version/XPCServices/Installer.xpc|Sparkle Installer.xpc
+$framework_version/Updater.app|Sparkle Updater.app
+$framework_version/Autoupdate|Sparkle Autoupdate
+$framework_path|Sparkle.framework
+EOF
+}
+
+sign_sparkle_components() {
+  local app_path="$1"
+  local sign_identity="$2"
+  local framework_path="$app_path/Contents/Frameworks/Sparkle.framework"
+  local framework_version="$framework_path/Versions/Current"
+  local downloader="$framework_version/XPCServices/Downloader.xpc"
+  local installer="$framework_version/XPCServices/Installer.xpc"
+  local autoupdate="$framework_version/Autoupdate"
+  local updater="$framework_version/Updater.app"
+  local component
+
+  for component in \
+    "$downloader" \
+    "$installer" \
+    "$autoupdate" \
+    "$updater" \
+    "$framework_path"; do
+    if [ ! -e "$component" ]; then
+      echo "Cannot sign missing Sparkle component: $component" >&2
+      return 1
+    fi
+  done
+
+  /usr/bin/codesign \
+    --force \
+    --sign "$sign_identity" \
+    --options runtime \
+    --preserve-metadata=entitlements \
+    --generate-entitlement-der \
+    "$downloader" || return 1
+  /usr/bin/codesign \
+    --force \
+    --sign "$sign_identity" \
+    --options runtime \
+    --generate-entitlement-der \
+    "$installer" || return 1
+  /usr/bin/codesign \
+    --force \
+    --sign "$sign_identity" \
+    --options runtime \
+    --generate-entitlement-der \
+    "$autoupdate" || return 1
+  /usr/bin/codesign \
+    --force \
+    --sign "$sign_identity" \
+    --options runtime \
+    --generate-entitlement-der \
+    "$updater" || return 1
+  /usr/bin/codesign \
+    --force \
+    --sign "$sign_identity" \
+    --options runtime \
+    --generate-entitlement-der \
+    "$framework_path"
+}
+
 verify_installable_app() {
   local app_path="$1"
   local label="$2"
@@ -171,6 +291,7 @@ verify_installable_app() {
   verify_app_group_entitlement "$widget_path" "$label SitRightWidgetExtension.appex" || return 1
   verify_app_group_team_identifier "$app_path" "$label SitRight.app" || return 1
   verify_app_group_team_identifier "$widget_path" "$label SitRightWidgetExtension.appex" || return 1
+  verify_sparkle_components "$app_path" 1 || return 1
   /usr/bin/codesign --verify --strict "$widget_path" || return 1
   /usr/bin/codesign --verify --strict --deep "$app_path" || return 1
 }
@@ -311,9 +432,14 @@ verify_build_output_candidate() {
   local widget_executable="$widget_path/Contents/MacOS/SitRightWidgetExtension"
   local app_architectures
   local widget_architectures
+  local sparkle_requires_expected_team=0
 
   verify_app_group_entitlement "$app_path" "Build output SitRight.app" 1 || return 1
   verify_app_group_entitlement "$widget_path" "Build output SitRightWidgetExtension.appex" 1 || return 1
+  if [ -n "$SIGN_IDENTITY" ]; then
+    sparkle_requires_expected_team=1
+  fi
+  verify_sparkle_components "$app_path" "$sparkle_requires_expected_team" || return 1
   if [ -n "$SIGN_IDENTITY" ]; then
     /usr/bin/codesign --verify --strict "$widget_path" || return 1
     /usr/bin/codesign --verify --strict --deep "$app_path" || return 1
@@ -457,6 +583,7 @@ if [ -z "$SIGN_IDENTITY" ]; then
 fi
 
 if [ -n "$SIGN_IDENTITY" ]; then
+  sign_sparkle_components "$STAGED_APP_PATH" "$SIGN_IDENTITY"
   /usr/bin/codesign --force --sign "$SIGN_IDENTITY" --entitlements "$ROOT_DIR/WidgetBundle/SitRightWidgetExtension.entitlements" --generate-entitlement-der "$WIDGET_PATH"
   clear_disallowed_xattrs "$WIDGET_PATH"
   /usr/bin/codesign --verify --strict "$WIDGET_PATH"
@@ -466,6 +593,7 @@ fi
 clear_root_disallowed_xattrs "$STAGED_APP_PATH"
 
 if [ -n "$SIGN_IDENTITY" ]; then
+  verify_sparkle_components "$STAGED_APP_PATH" 1
   /usr/bin/codesign --verify --strict "$WIDGET_PATH"
   /usr/bin/codesign --verify --strict --deep "$STAGED_APP_PATH"
 fi

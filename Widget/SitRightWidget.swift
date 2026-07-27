@@ -220,9 +220,6 @@ struct SitRightWidgetEntryView: View {
         case .snoozed:
             return "已延后 5 分钟"
         case .guiding:
-            if let guideEndsAt = entry.snapshot.guideEndsAt {
-                return "活动进行中，还剩 \(max(Int(ceil(guideEndsAt.timeIntervalSince(entry.date))), 0)) 秒"
-            }
             return "活动进行中"
         case .overdue:
             return "活动时间已到"

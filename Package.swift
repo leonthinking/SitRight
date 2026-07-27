@@ -11,9 +11,18 @@ let package = Package(
     products: [
         .executable(name: "SitRight", targets: ["SitRight"])
     ],
+    dependencies: [
+        .package(
+            url: "https://github.com/sparkle-project/Sparkle",
+            exact: "2.9.2"
+        )
+    ],
     targets: [
         .executableTarget(
             name: "SitRight",
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             path: "Sources"
         ),
         .testTarget(

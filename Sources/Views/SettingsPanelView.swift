@@ -6,6 +6,126 @@ enum SettingsPane: String {
     case general
     case schedule
     case notifications
+    case about
+}
+
+enum SettingsPanePresentation {
+    static func title(for pane: SettingsPane) -> String {
+        switch SettingsSelection.visiblePane(for: pane) {
+        case .general:
+            return "通用"
+        case .notifications:
+            return "通知"
+        case .about:
+            return "关于"
+        case .schedule:
+            preconditionFailure("Visible settings panes must not resolve to Schedule")
+        }
+    }
+}
+
+enum SettingsWindowSizingPolicy {
+    static let defaultContentSize = NSSize(width: 520, height: 800)
+    static let minimumContentSize = NSSize(width: 460, height: 520)
+    static let legacySizeMigrationDefaultsKey =
+        "sitright.settings.windowSizingV2Migrated"
+
+    static func migrationTarget(
+        currentContentSize: NSSize,
+        maximumContentSize: NSSize
+    ) -> NSSize {
+        NSSize(
+            width: min(
+                max(currentContentSize.width, defaultContentSize.width),
+                maximumContentSize.width
+            ),
+            height: min(
+                max(currentContentSize.height, defaultContentSize.height),
+                maximumContentSize.height
+            )
+        )
+    }
+}
+
+@MainActor
+enum SettingsWindowConfigurator {
+    @discardableResult
+    static func configure(
+        _ window: NSWindow,
+        shouldMigrateLegacySize: Bool
+    ) -> Bool {
+        window.contentMinSize = SettingsWindowSizingPolicy.minimumContentSize
+        guard shouldMigrateLegacySize else { return false }
+
+        let screen = window.screen ?? NSScreen.main
+        let maximumContentSize = screen.map {
+            window.contentRect(forFrameRect: $0.visibleFrame).size
+        } ?? SettingsWindowSizingPolicy.defaultContentSize
+        let targetSize = SettingsWindowSizingPolicy.migrationTarget(
+            currentContentSize: window.contentLayoutRect.size,
+            maximumContentSize: maximumContentSize
+        )
+        window.setContentSize(targetSize)
+
+        if let screen {
+            let constrainedFrame = window.constrainFrameRect(
+                window.frame,
+                to: screen
+            )
+            window.setFrame(constrainedFrame, display: false)
+        }
+        return true
+    }
+}
+
+private final class SettingsWindowObserverView: NSView {
+    var onWindowAvailable: ((NSWindow) -> Void)?
+    var didMigrateLegacySize = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        notifyIfAttached()
+    }
+
+    func notifyIfAttached() {
+        guard let window else { return }
+        onWindowAvailable?(window)
+    }
+}
+
+private struct SettingsWindowConfigurationView: NSViewRepresentable {
+    @Binding var hasCompletedLegacySizeMigration: Bool
+
+    func makeNSView(context: Context) -> SettingsWindowObserverView {
+        let view = SettingsWindowObserverView()
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: SettingsWindowObserverView, context: Context) {
+        update(nsView)
+    }
+
+    private func update(_ view: SettingsWindowObserverView) {
+        let migrationBinding = $hasCompletedLegacySizeMigration
+        view.onWindowAvailable = { [weak view] window in
+            guard let view else { return }
+            let shouldMigrate =
+                !migrationBinding.wrappedValue &&
+                !view.didMigrateLegacySize
+            let didMigrate = SettingsWindowConfigurator.configure(
+                window,
+                shouldMigrateLegacySize: shouldMigrate
+            )
+            guard didMigrate else { return }
+
+            view.didMigrateLegacySize = true
+            DispatchQueue.main.async {
+                migrationBinding.wrappedValue = true
+            }
+        }
+        view.notifyIfAttached()
+    }
 }
 
 enum SettingsSectionDestination: String {
@@ -32,6 +152,8 @@ enum SettingsSelection {
             )
         case .notifications:
             return SettingsRoute(visiblePane: .notifications, requestedSection: nil)
+        case .about:
+            return SettingsRoute(visiblePane: .about, requestedSection: nil)
         }
     }
 
@@ -98,11 +220,14 @@ struct SettingsPanelView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var notificationManager: NotificationManager
     @EnvironmentObject private var launchAtLoginController: LaunchAtLoginController
+    @EnvironmentObject private var updateController: UpdateController
 
     @AppStorage(SettingsSelection.defaultsKey)
     private var selectedPane: SettingsPane = .general
     @AppStorage(SettingsSelection.requestedSectionDefaultsKey)
     private var requestedSectionRawValue = ""
+    @AppStorage(SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey)
+    private var hasCompletedLegacySizeMigration = false
     @State private var intervalSelectionOverride: ReminderIntervalChoice?
     @FocusState private var focusedSetting: SettingsFocusTarget?
     @AccessibilityFocusState private var accessibilityFocusedSetting: SettingsFocusTarget?
@@ -111,17 +236,48 @@ struct SettingsPanelView: View {
         TabView(selection: visiblePaneSelection) {
             generalPane
                 .tabItem {
-                    Label("常规", systemImage: "gearshape")
+                    Label(
+                        SettingsPanePresentation.title(for: .general),
+                        systemImage: "gearshape"
+                    )
                 }
                 .tag(SettingsPane.general)
 
             notificationsPane
                 .tabItem {
-                    Label("通知", systemImage: "bell")
+                    Label(
+                        SettingsPanePresentation.title(for: .notifications),
+                        systemImage: "bell"
+                    )
                 }
                 .tag(SettingsPane.notifications)
+
+            aboutPane
+                .tabItem {
+                    Label(
+                        SettingsPanePresentation.title(for: .about),
+                        systemImage: "info.circle"
+                    )
+                }
+                .tag(SettingsPane.about)
         }
-        .frame(width: 460, height: 380)
+        .frame(
+            minWidth: SettingsWindowSizingPolicy.minimumContentSize.width,
+            idealWidth: SettingsWindowSizingPolicy.defaultContentSize.width,
+            maxWidth: .infinity,
+            minHeight: SettingsWindowSizingPolicy.minimumContentSize.height,
+            idealHeight: SettingsWindowSizingPolicy.defaultContentSize.height,
+            maxHeight: .infinity
+        )
+        .background {
+            SettingsWindowConfigurationView(
+                hasCompletedLegacySizeMigration:
+                    $hasCompletedLegacySizeMigration
+            )
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
         .onAppear {
             migrateSelectedPaneIfNeeded()
             reconcileLaunchAtLoginSetting()
@@ -271,6 +427,86 @@ struct SettingsPanelView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var aboutPane: some View {
+        Form {
+            Section("SitRight 坐正") {
+                HStack(spacing: 14) {
+                    Image(nsImage: NSApplication.shared.applicationIconImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 56, height: 56)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("SitRight 坐正")
+                            .font(.headline)
+                        Text(updateController.currentVersionText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+
+            Section("版本更新") {
+                Toggle(
+                    "自动检查更新",
+                    isOn: Binding(
+                        get: {
+                            updateController.automaticallyChecksForUpdates
+                        },
+                        set: {
+                            updateController
+                                .setAutomaticallyChecksForUpdates($0)
+                        }
+                    )
+                )
+                .disabled(!updateController.isConfigured)
+
+                StatusMessage(
+                    text: updateController.statusText,
+                    systemImage: updateController.state.systemImage,
+                    color: updateStatusColor
+                )
+
+                HStack {
+                    Button("检查更新…") {
+                        updateController.checkForUpdates()
+                    }
+                    .disabled(!updateController.canCheckForUpdates)
+
+                    Spacer()
+
+                    Link(
+                        "查看 GitHub Releases",
+                        destination: UpdateConfiguration.releasesURL
+                    )
+                }
+
+                Text(
+                    "GitHub 社区预览版未经 Developer ID 公证；首次安装可能需要在系统设置中手动允许。"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var updateStatusColor: Color {
+        switch updateController.state {
+        case .current:
+            return .green
+        case .available:
+            return .blue
+        case .unavailable, .failed:
+            return .orange
+        case .idle, .checking, .downloading, .installing:
+            return .secondary
+        }
     }
 
     private var effectiveIntervalChoice: ReminderIntervalChoice {

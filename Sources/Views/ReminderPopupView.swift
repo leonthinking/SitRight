@@ -19,6 +19,7 @@ enum ReminderPopupActionLayout {
 struct ReminderPopupView: View {
     let message: String
     let isGuiding: Bool
+    let isCompletion: Bool
     let guideEndsAt: Date?
     let onAction: (ReminderAction) -> Void
 
@@ -28,11 +29,13 @@ struct ReminderPopupView: View {
     init(
         message: String,
         isGuiding: Bool = false,
+        isCompletion: Bool = false,
         guideEndsAt: Date? = nil,
         onAction: @escaping (ReminderAction) -> Void
     ) {
         self.message = message
         self.isGuiding = isGuiding
+        self.isCompletion = isCompletion
         self.guideEndsAt = guideEndsAt
         self.onAction = onAction
     }
@@ -62,14 +65,18 @@ struct ReminderPopupView: View {
                 Circle()
                     .fill(.green.opacity(0.15))
                     .frame(width: 64, height: 64)
-                Image(systemName: "timer")
+                Image(systemName: isCompletion ? "checkmark.circle.fill" : "timer")
                     .font(.system(size: 32, weight: .semibold))
                     .foregroundStyle(.green)
             }
             .accessibilityHidden(true)
 
             VStack(spacing: 8) {
-                Text(isGuiding ? "活动进行中" : "到活动时间了")
+                Text(
+                    isCompletion
+                        ? "活动完成"
+                        : (isGuiding ? "活动进行中" : "到活动时间了")
+                )
                     .font(.title.weight(.bold))
                     .fontDesign(.rounded)
                 Text(message)
@@ -94,7 +101,14 @@ struct ReminderPopupView: View {
 
     @ViewBuilder
     private var actionSurface: some View {
-        if isGuiding {
+        if isCompletion {
+            Button("知道了") {
+                onAction(.dismissed)
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .accessibilityHint("关闭活动完成反馈")
+        } else if isGuiding {
             Button {
                 onAction(.dismissed)
             } label: {

@@ -6,6 +6,8 @@ LOCK_FILE="${TMPDIR:-/private/tmp}/SitRight.build.lock"
 WIDGET_RELATIVE_PATH="Contents/PlugIns/SitRightWidgetExtension.appex"
 APP_GROUP_IDENTIFIER="973KFG9CL9.com.leon.SitRight"
 EXPECTED_TEAM_IDENTIFIER="${APP_GROUP_IDENTIFIER%%.*}"
+EXPECTED_INSTALLER_MACH_SERVICE="com.leon.SitRight-spki"
+EXPECTED_STATUS_MACH_SERVICE="com.leon.SitRight-spks"
 OUTPUT_DIR="$ROOT_DIR/build"
 OUTPUT_TRANSACTION_DIR="$OUTPUT_DIR/.SitRightDMGTransaction"
 STAGING_DIR=""
@@ -208,20 +210,169 @@ validate_entitlements_xml() {
   fi
 }
 
+validate_update_entitlements_xml() {
+  local entitlements="$1"
+  local label="$2"
+  local role="$3"
+  local sandbox_enabled
+  local group_index=0
+  local group_value
+  local mach_index=0
+  local mach_value
+  local installer_service_found=0
+  local status_service_found=0
+
+  sandbox_enabled="$(
+    /usr/bin/plutil \
+      -extract "com\\.apple\\.security\\.app-sandbox" \
+      raw \
+      -o - \
+      - <<<"$entitlements" 2>/dev/null || true
+  )"
+  if [ "$sandbox_enabled" != "true" ]; then
+    echo "error: $label must enable App Sandbox" >&2
+    return 1
+  fi
+
+  while group_value="$(
+    /usr/bin/plutil \
+      -extract "com\\.apple\\.security\\.application-groups.$group_index" \
+      raw \
+      -o - \
+      - <<<"$entitlements" 2>/dev/null
+  )"; do
+    if [ "$group_value" != "$APP_GROUP_IDENTIFIER" ]; then
+      echo "error: $label contains an unexpected App Group entitlement" >&2
+      return 1
+    fi
+    group_index=$((group_index + 1))
+  done
+  if [ "$group_index" != "1" ]; then
+    echo "error: $label must contain exactly one App Group entitlement" >&2
+    return 1
+  fi
+
+  while mach_value="$(
+    /usr/bin/plutil \
+      -extract "com\\.apple\\.security\\.temporary-exception\\.mach-lookup\\.global-name.$mach_index" \
+      raw \
+      -o - \
+      - <<<"$entitlements" 2>/dev/null
+  )"; do
+    case "$mach_value" in
+      "$EXPECTED_INSTALLER_MACH_SERVICE")
+        installer_service_found=$((installer_service_found + 1))
+        ;;
+      "$EXPECTED_STATUS_MACH_SERVICE")
+        status_service_found=$((status_service_found + 1))
+        ;;
+      *)
+        echo "error: $label contains an unexpected Mach lookup entitlement" >&2
+        return 1
+        ;;
+    esac
+    mach_index=$((mach_index + 1))
+  done
+
+  case "$role" in
+    app)
+      if [ "$mach_index" != "2" ] ||
+        [ "$installer_service_found" != "1" ] ||
+        [ "$status_service_found" != "1" ]; then
+        echo "error: $label must contain the exact Sparkle Mach services" >&2
+        return 1
+      fi
+      ;;
+    widget)
+      if [ "$mach_index" != "0" ]; then
+        echo "error: $label must not contain Sparkle Mach services" >&2
+        return 1
+      fi
+      ;;
+    *)
+      echo "error: unsupported entitlement validation role: $role" >&2
+      return 1
+      ;;
+  esac
+}
+
 verify_app_group_contract() {
   local target="$1"
   local label="$2"
+  local role="$3"
   local entitlements
   local team_identifier
 
   entitlements="$(/usr/bin/codesign -d --entitlements :- "$target" 2>/dev/null)"
   validate_entitlements_xml "$entitlements" "$label"
+  validate_update_entitlements_xml "$entitlements" "$label" "$role"
 
   team_identifier="$(team_identifier_for "$target")"
   if [ "$team_identifier" != "$EXPECTED_TEAM_IDENTIFIER" ]; then
     echo "error: $label requires TeamIdentifier=$EXPECTED_TEAM_IDENTIFIER, got ${team_identifier:-not-set}" >&2
     return 1
   fi
+}
+
+verify_expected_team_identifier() {
+  local target="$1"
+  local label="$2"
+  local team_identifier
+
+  team_identifier="$(team_identifier_for "$target")"
+  if [ "$team_identifier" != "$EXPECTED_TEAM_IDENTIFIER" ]; then
+    echo "error: $label requires TeamIdentifier=$EXPECTED_TEAM_IDENTIFIER, got ${team_identifier:-not-set}" >&2
+    return 1
+  fi
+}
+
+verify_no_debug_entitlement() {
+  local target="$1"
+  local label="$2"
+  local entitlements
+  local debug_allowed
+
+  entitlements="$(/usr/bin/codesign -d --entitlements :- "$target" 2>/dev/null)" || return 1
+  debug_allowed="$(
+    /usr/bin/plutil \
+      -extract "com\\.apple\\.security\\.get-task-allow" \
+      raw \
+      -o - \
+      - <<<"$entitlements" 2>/dev/null || true
+  )"
+  if [ "$debug_allowed" = "true" ]; then
+    echo "error: $label contains the debugging entitlement com.apple.security.get-task-allow" >&2
+    return 1
+  fi
+}
+
+verify_sparkle_components() {
+  local app_path="$1"
+  local framework_path="$app_path/Contents/Frameworks/Sparkle.framework"
+  local framework_version="$framework_path/Versions/Current"
+  local target
+  local label
+
+  if [ ! -d "$framework_path" ]; then
+    echo "error: Sparkle.framework is missing: $framework_path" >&2
+    return 1
+  fi
+
+  while IFS='|' read -r target label; do
+    if [ ! -e "$target" ]; then
+      echo "error: $label is missing: $target" >&2
+      return 1
+    fi
+    /usr/bin/codesign --verify --strict "$target" || return 1
+    verify_expected_team_identifier "$target" "$label" || return 1
+    verify_no_debug_entitlement "$target" "$label" || return 1
+  done <<EOF
+$framework_version/XPCServices/Downloader.xpc|Sparkle Downloader.xpc
+$framework_version/XPCServices/Installer.xpc|Sparkle Installer.xpc
+$framework_version/Updater.app|Sparkle Updater.app
+$framework_version/Autoupdate|Sparkle Autoupdate
+$framework_path|Sparkle.framework
+EOF
 }
 
 verify_packageable_app() {
@@ -244,8 +395,9 @@ verify_packageable_app() {
 
   /usr/bin/codesign --verify --strict "$widget_path"
   /usr/bin/codesign --verify --strict --deep "$app_path"
-  verify_app_group_contract "$app_path" "$label SitRight.app"
-  verify_app_group_contract "$widget_path" "$label SitRightWidgetExtension.appex"
+  verify_app_group_contract "$app_path" "$label SitRight.app" app
+  verify_app_group_contract "$widget_path" "$label SitRightWidgetExtension.appex" widget
+  verify_sparkle_components "$app_path"
 
   app_short_version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Contents/Info.plist")"
   widget_short_version="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$widget_path/Contents/Info.plist")"
@@ -287,6 +439,54 @@ architecture_label_for() {
       return 1
       ;;
   esac
+}
+
+write_tree_manifest() {
+  local root="$1"
+  local output="$2"
+  local item
+  local relative_path
+  local mode
+  local size
+  local hash
+  local link_target
+
+  : >"$output"
+  while IFS= read -r item; do
+    relative_path="${item#"$root"/}"
+    mode="$(/usr/bin/stat -f '%Lp' "$item")"
+    if [ -L "$item" ]; then
+      link_target="$(/usr/bin/readlink "$item")"
+      /usr/bin/printf \
+        'link\t%s\t%s\t%s\n' \
+        "$mode" \
+        "$relative_path" \
+        "$link_target" \
+        >>"$output"
+    elif [ -f "$item" ]; then
+      size="$(/usr/bin/stat -f '%z' "$item")"
+      hash="$(/usr/bin/shasum -a 256 "$item" | /usr/bin/awk '{print $1}')"
+      /usr/bin/printf \
+        'file\t%s\t%s\t%s\t%s\n' \
+        "$mode" \
+        "$size" \
+        "$hash" \
+        "$relative_path" \
+        >>"$output"
+    elif [ -d "$item" ]; then
+      /usr/bin/printf \
+        'directory\t%s\t%s\n' \
+        "$mode" \
+        "$relative_path" \
+        >>"$output"
+    else
+      echo "error: unsupported filesystem item in app bundle: $relative_path" >&2
+      return 1
+    fi
+  done < <(
+    /usr/bin/find "$root" -xdev -mindepth 1 -print |
+      LC_ALL=C /usr/bin/sort
+  )
 }
 
 publish_artifact_pair() {
@@ -344,6 +544,10 @@ main() {
   local size
   local signing_authority
   local built_app_path
+  local image_staging_dir
+  local mounted_entry_count
+  local staged_manifest
+  local mounted_manifest
 
   if [ "${SITRIGHT_DMG_LOCK_HELD:-0}" != "1" ]; then
     export SITRIGHT_DMG_LOCK_HELD=1
@@ -363,7 +567,9 @@ main() {
   recover_interrupted_publication
   STAGING_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/SitRightDMG.XXXXXX")"
   MOUNT_ROOT="$(mktemp -d "${TMPDIR:-/private/tmp}/SitRightDMGMount.XXXXXX")"
-  built_app_path="$STAGING_DIR/BuiltSitRight.app"
+  /bin/mkdir "$STAGING_DIR/build" "$STAGING_DIR/image"
+  built_app_path="$STAGING_DIR/build/BuiltSitRight.app"
+  image_staging_dir="$STAGING_DIR/image"
 
   cd "$ROOT_DIR"
 
@@ -378,7 +584,7 @@ main() {
   BUILD_VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$built_app_path/Contents/Info.plist")"
   dmg_path="$OUTPUT_DIR/SitRight-$VERSION-build$BUILD_VERSION-$ARCHITECTURE_LABEL.dmg"
   checksum_path="$dmg_path.sha256"
-  STAGED_APP_PATH="$STAGING_DIR/SitRight.app"
+  STAGED_APP_PATH="$image_staging_dir/SitRight.app"
   OUTPUT_STAGING_DIR="$OUTPUT_TRANSACTION_DIR"
   /bin/mkdir "$OUTPUT_STAGING_DIR"
   candidate_dmg_path="$OUTPUT_STAGING_DIR/candidate.dmg"
@@ -386,13 +592,13 @@ main() {
 
   echo "==> Staging SitRight.app and Applications shortcut"
   /usr/bin/ditto --norsrc "$built_app_path" "$STAGED_APP_PATH"
-  /bin/ln -s /Applications "$STAGING_DIR/Applications"
+  /bin/ln -s /Applications "$image_staging_dir/Applications"
   verify_packageable_app "$STAGED_APP_PATH" "Staged"
 
   echo "==> Creating candidate DMG for $dmg_path"
   /usr/bin/hdiutil create \
     -volname "SitRight $VERSION" \
-    -srcfolder "$STAGING_DIR" \
+    -srcfolder "$image_staging_dir" \
     -format UDZO \
     -fs HFS+ \
     "$candidate_dmg_path" >/dev/null
@@ -421,7 +627,21 @@ main() {
     echo "error: mounted DMG is missing Applications -> /Applications" >&2
     return 1
   fi
-  /usr/bin/diff -qr "$STAGED_APP_PATH" "$MOUNT_POINT/SitRight.app"
+  mounted_entry_count="$(
+    /usr/bin/find "$MOUNT_POINT" -mindepth 1 -maxdepth 1 -print |
+      /usr/bin/wc -l |
+      /usr/bin/tr -d ' '
+  )"
+  if [ "$mounted_entry_count" != "2" ] ||
+    [ ! -d "$MOUNT_POINT/SitRight.app" ]; then
+    echo "error: mounted DMG must contain only SitRight.app and Applications" >&2
+    return 1
+  fi
+  staged_manifest="$STAGING_DIR/staged-app.manifest"
+  mounted_manifest="$STAGING_DIR/mounted-app.manifest"
+  write_tree_manifest "$STAGED_APP_PATH" "$staged_manifest"
+  write_tree_manifest "$MOUNT_POINT/SitRight.app" "$mounted_manifest"
+  /usr/bin/diff -u "$staged_manifest" "$mounted_manifest"
   verify_packageable_app "$MOUNT_POINT/SitRight.app" "Mounted"
 
   detach_attached_image
@@ -437,6 +657,27 @@ main() {
     "$candidate_checksum_path" \
     "$dmg_path" \
     "$checksum_path"
+
+  if [ -n "${SITRIGHT_DMG_RESULT_PATH:-}" ]; then
+    case "$SITRIGHT_DMG_RESULT_PATH" in
+      /*)
+        ;;
+      *)
+        echo "error: SITRIGHT_DMG_RESULT_PATH must be absolute" >&2
+        return 1
+        ;;
+    esac
+    /usr/bin/printf \
+      'dmg_path=%s\nchecksum_path=%s\nversion=%s\nbuild=%s\narchitecture=%s\nsha256=%s\n' \
+      "$dmg_path" \
+      "$checksum_path" \
+      "$VERSION" \
+      "$BUILD_VERSION" \
+      "$ARCHITECTURE_LABEL" \
+      "$sha256" \
+      >"$SITRIGHT_DMG_RESULT_PATH.next"
+    /bin/mv "$SITRIGHT_DMG_RESULT_PATH.next" "$SITRIGHT_DMG_RESULT_PATH"
+  fi
 
   size="$(/usr/bin/du -h "$dmg_path" | /usr/bin/awk '{print $1}')"
   signing_authority="$(

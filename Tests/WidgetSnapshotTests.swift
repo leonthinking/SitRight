@@ -3,6 +3,26 @@ import XCTest
 
 @MainActor
 final class WidgetSnapshotTests: XCTestCase {
+    func testGuidingWidgetStatusDoesNotFreezeAStaticSecondCount() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let widgetSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "Widget/SitRightWidget.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(widgetSource.contains("case .guiding:"))
+        XCTAssertTrue(widgetSource.contains("return \"活动进行中\""))
+        XCTAssertFalse(
+            widgetSource.contains(
+                "guideEndsAt.timeIntervalSince(entry.date)"
+            )
+        )
+    }
+
     func testWidgetKindsRemainStableUniqueAndCompleteForReloading() {
         XCTAssertEqual(SitRightWidgetKind.activity, "SitRightActivityWidget")
         XCTAssertEqual(SitRightWidgetKind.quarterActivity, "SitRightQuarterActivityWidget")

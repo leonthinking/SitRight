@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 import XCTest
 @testable import SitRight
 
@@ -18,15 +19,463 @@ final class MenuPanelPresentationTests: XCTestCase {
             .notifications
         )
         XCTAssertEqual(
+            SettingsSelection.visiblePane(for: .about),
+            .about
+        )
+        XCTAssertEqual(
             Set(
                 [
                     SettingsPane.general,
                     .schedule,
-                    .notifications
+                    .notifications,
+                    .about
                 ].map(SettingsSelection.visiblePane(for:))
             ),
-            Set([.general, .notifications])
+            Set([.general, .notifications, .about])
         )
+    }
+
+    func testSettingsPresentationKeepsStableIdentifiersAndUsesGeneralTitle() {
+        XCTAssertEqual(SettingsPane.general.rawValue, "general")
+        XCTAssertEqual(SettingsPane.schedule.rawValue, "schedule")
+        XCTAssertEqual(SettingsPane.notifications.rawValue, "notifications")
+        XCTAssertEqual(SettingsPane.about.rawValue, "about")
+        XCTAssertEqual(
+            SettingsSelection.defaultsKey,
+            "sitright.settings.selectedPane"
+        )
+        XCTAssertEqual(
+            SettingsSelection.requestedSectionDefaultsKey,
+            "sitright.settings.requestedSection"
+        )
+        XCTAssertEqual(SettingsPanePresentation.title(for: .general), "通用")
+        XCTAssertEqual(SettingsPanePresentation.title(for: .schedule), "通用")
+        XCTAssertEqual(SettingsPanePresentation.title(for: .notifications), "通知")
+        XCTAssertEqual(SettingsPanePresentation.title(for: .about), "关于")
+    }
+
+    func testSettingsWindowSizingProvidesRoomAndAllowsExpansion() {
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.defaultContentSize,
+            NSSize(width: 520, height: 800)
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.minimumContentSize,
+            NSSize(width: 460, height: 520)
+        )
+        XCTAssertGreaterThan(
+            SettingsWindowSizingPolicy.defaultContentSize.width,
+            SettingsWindowSizingPolicy.minimumContentSize.width
+        )
+        XCTAssertGreaterThan(
+            SettingsWindowSizingPolicy.defaultContentSize.height,
+            SettingsWindowSizingPolicy.minimumContentSize.height
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.migrationTarget(
+                currentContentSize: NSSize(width: 460, height: 380),
+                maximumContentSize: NSSize(width: 1_440, height: 900)
+            ),
+            SettingsWindowSizingPolicy.defaultContentSize
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.migrationTarget(
+                currentContentSize: NSSize(width: 460, height: 380),
+                maximumContentSize: NSSize(width: 1_000, height: 700)
+            ),
+            NSSize(width: 520, height: 700)
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.migrationTarget(
+                currentContentSize: NSSize(width: 720, height: 900),
+                maximumContentSize: NSSize(width: 1_440, height: 1_000)
+            ),
+            NSSize(width: 720, height: 900)
+        )
+    }
+
+    func testSettingsSceneDeclaresDefaultSizeAndContentMinResizability() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "Sources/SitRightApp.swift"
+            ),
+            encoding: .utf8
+        )
+        let settingsSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "Sources/Views/SettingsPanelView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(
+            appSource.contains(
+                ".defaultSize(SettingsWindowSizingPolicy.defaultContentSize)"
+            )
+        )
+        XCTAssertTrue(
+            appSource.contains(".windowResizability(.contentMinSize)")
+        )
+        XCTAssertFalse(settingsSource.contains(".frame(width: 460, height: 380)"))
+        XCTAssertTrue(settingsSource.contains(".frame(width: 1, height: 1)"))
+        XCTAssertFalse(settingsSource.contains(".frame(width: 0, height: 0)"))
+    }
+
+    @MainActor
+    func testProductionSettingsViewFillsDefaultAndExpandedWindows() throws {
+        let suiteName = "MenuPanelPresentationTests.settings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            true,
+            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+        )
+
+        let settingsStore = SettingsStore(defaults: defaults)
+        let notificationManager = NotificationManager(
+            client: SettingsNotificationCenterClientStub()
+        )
+        let launchAtLoginController = LaunchAtLoginController(
+            service: SettingsLaunchAtLoginServiceStub()
+        )
+        let view = SettingsPanelView()
+            .defaultAppStorage(defaults)
+            .environmentObject(settingsStore)
+            .environmentObject(notificationManager)
+            .environmentObject(launchAtLoginController)
+            .environmentObject(UpdateController(startsUpdater: false))
+        let hostingController = NSHostingController(rootView: view)
+        hostingController.sizingOptions = []
+        let window = NSWindow(
+            contentRect: NSRect(
+                origin: .zero,
+                size: SettingsWindowSizingPolicy.defaultContentSize
+            ),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentViewController = hostingController
+
+        let sizeCases: [(contentSize: NSSize, expectsOverflow: Bool)] = [
+            (SettingsWindowSizingPolicy.minimumContentSize, true),
+            (SettingsWindowSizingPolicy.defaultContentSize, false),
+            (NSSize(width: 720, height: 900), false)
+        ]
+
+        for sizeCase in sizeCases {
+            let contentSize = sizeCase.contentSize
+            window.setContentSize(contentSize)
+            window.contentView?.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(
+                window.contentRect(forFrameRect: window.frame).size,
+                contentSize
+            )
+            XCTAssertEqual(hostingController.view.frame.size, contentSize)
+
+            let formScrollView = try XCTUnwrap(
+                hostingController.view.descendants(ofType: NSScrollView.self).first
+            )
+            let documentHeight = formScrollView.documentView?.bounds.height ?? 0
+            let viewportHeight = formScrollView.contentView.bounds.height
+
+            if sizeCase.expectsOverflow {
+                XCTAssertGreaterThan(documentHeight, viewportHeight)
+            } else {
+                XCTAssertLessThanOrEqual(documentHeight, viewportHeight)
+            }
+        }
+
+        let sharedTabSize = NSSize(width: 640, height: 700)
+        window.setContentSize(sharedTabSize)
+        defaults.set(
+            SettingsPane.notifications.rawValue,
+            forKey: SettingsSelection.defaultsKey
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(window.contentLayoutRect.size, sharedTabSize)
+        defaults.set(
+            SettingsPane.general.rawValue,
+            forKey: SettingsSelection.defaultsKey
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(window.contentLayoutRect.size, sharedTabSize)
+        defaults.set(
+            SettingsPane.about.rawValue,
+            forKey: SettingsSelection.defaultsKey
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(window.contentLayoutRect.size, sharedTabSize)
+
+        XCTAssertTrue(window.styleMask.contains(.resizable))
+        window.contentViewController = nil
+        window.close()
+    }
+
+    func testAboutSettingsDeclaresUpdateControlsAndPreviewBoundary() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let settingsSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "Sources/Views/SettingsPanelView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(settingsSource.contains("Section(\"版本更新\")"))
+        XCTAssertTrue(settingsSource.contains("\"自动检查更新\""))
+        XCTAssertTrue(settingsSource.contains("Button(\"检查更新…\")"))
+        XCTAssertTrue(settingsSource.contains("\"查看 GitHub Releases\""))
+        XCTAssertTrue(settingsSource.contains("GitHub 社区预览版未经 Developer ID 公证"))
+    }
+
+    @MainActor
+    func testProductionSettingsWindowConfiguratorMigratesLegacySizeOnce() {
+        let suiteName = "MenuPanelPresentationTests.windowMigration.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settingsStore = SettingsStore(defaults: defaults)
+        let notificationManager = NotificationManager(
+            client: SettingsNotificationCenterClientStub()
+        )
+        let launchAtLoginController = LaunchAtLoginController(
+            service: SettingsLaunchAtLoginServiceStub()
+        )
+        let legacyView = SettingsPanelView()
+            .defaultAppStorage(defaults)
+            .environmentObject(settingsStore)
+            .environmentObject(notificationManager)
+            .environmentObject(launchAtLoginController)
+            .environmentObject(UpdateController(startsUpdater: false))
+        let legacyHostingController = NSHostingController(rootView: legacyView)
+        legacyHostingController.sizingOptions = []
+        let legacyWindow = NSWindow(
+            contentRect: NSRect(
+                origin: .zero,
+                size: NSSize(width: 460, height: 380)
+            ),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        legacyWindow.isReleasedWhenClosed = false
+        legacyWindow.contentViewController = legacyHostingController
+        legacyWindow.setContentSize(NSSize(width: 460, height: 380))
+
+        let didMigrate = SettingsWindowConfigurator.configure(
+            legacyWindow,
+            shouldMigrateLegacySize: true
+        )
+        XCTAssertTrue(didMigrate)
+        defaults.set(
+            true,
+            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+        )
+
+        let maximumContentSize = (legacyWindow.screen ?? NSScreen.main).map {
+            legacyWindow.contentRect(forFrameRect: $0.visibleFrame).size
+        } ?? SettingsWindowSizingPolicy.defaultContentSize
+        let expectedMigratedSize = SettingsWindowSizingPolicy.migrationTarget(
+            currentContentSize: SettingsWindowSizingPolicy.minimumContentSize,
+            maximumContentSize: maximumContentSize
+        )
+        XCTAssertEqual(legacyWindow.contentLayoutRect.size, expectedMigratedSize)
+        XCTAssertTrue(
+            defaults.bool(
+                forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+            )
+        )
+        let didMigrateAgain = SettingsWindowConfigurator.configure(
+            legacyWindow,
+            shouldMigrateLegacySize: false
+        )
+        XCTAssertFalse(didMigrateAgain)
+        XCTAssertEqual(legacyWindow.contentLayoutRect.size, expectedMigratedSize)
+
+        legacyWindow.contentViewController = nil
+        legacyWindow.close()
+
+        let restoredSize = NSSize(width: 600, height: 600)
+        let restoredView = SettingsPanelView()
+            .defaultAppStorage(defaults)
+            .environmentObject(settingsStore)
+            .environmentObject(notificationManager)
+            .environmentObject(launchAtLoginController)
+            .environmentObject(UpdateController(startsUpdater: false))
+        let restoredHostingController = NSHostingController(rootView: restoredView)
+        restoredHostingController.sizingOptions = []
+        let restoredWindow = NSWindow(
+            contentRect: NSRect(origin: .zero, size: restoredSize),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        restoredWindow.isReleasedWhenClosed = false
+        restoredWindow.contentViewController = restoredHostingController
+        restoredWindow.setContentSize(restoredSize)
+        restoredWindow.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(restoredWindow.contentLayoutRect.size, restoredSize)
+
+        restoredWindow.contentViewController = nil
+        restoredWindow.close()
+    }
+
+    @MainActor
+    func testProductionSettingsViewMigratesLegacyScheduleRequest() throws {
+        let suiteName = "MenuPanelPresentationTests.legacySchedule.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            SettingsPane.schedule.rawValue,
+            forKey: SettingsSelection.defaultsKey
+        )
+        defaults.set(
+            true,
+            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+        )
+
+        let settingsStore = SettingsStore(defaults: defaults)
+        let notificationManager = NotificationManager(
+            client: SettingsNotificationCenterClientStub()
+        )
+        let launchAtLoginController = LaunchAtLoginController(
+            service: SettingsLaunchAtLoginServiceStub()
+        )
+        let view = SettingsPanelView()
+            .defaultAppStorage(defaults)
+            .environmentObject(settingsStore)
+            .environmentObject(notificationManager)
+            .environmentObject(launchAtLoginController)
+            .environmentObject(UpdateController(startsUpdater: false))
+        let hostingController = NSHostingController(rootView: view)
+        hostingController.sizingOptions = []
+        let window = NSWindow(
+            contentRect: NSRect(
+                origin: .zero,
+                size: SettingsWindowSizingPolicy.minimumContentSize
+            ),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentViewController = hostingController
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            defaults.string(forKey: SettingsSelection.defaultsKey),
+            SettingsPane.general.rawValue
+        )
+        XCTAssertEqual(
+            defaults.string(
+                forKey: SettingsSelection.requestedSectionDefaultsKey
+            ),
+            ""
+        )
+        let formScrollView = try XCTUnwrap(
+            hostingController.view.descendants(ofType: NSScrollView.self).first
+        )
+        XCTAssertGreaterThan(formScrollView.contentView.bounds.origin.y, 0)
+
+        window.contentViewController = nil
+        window.close()
+    }
+
+    @MainActor
+    func testSettingsDynamicContentScrollsAtAccessibilitySize() throws {
+        let suiteName = "MenuPanelPresentationTests.dynamicSettings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            true,
+            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+        )
+
+        let settingsStore = SettingsStore(defaults: defaults)
+        settingsStore.update {
+            $0.intervalMinutes = 35
+            $0.dailyTarget = 24
+            $0.lunchPauseEnabled = true
+        }
+        settingsStore.setError("测试错误提示仍应保留在可滚动内容中")
+        let notificationManager = NotificationManager(
+            client: SettingsNotificationCenterClientStub()
+        )
+        let launchAtLoginController = LaunchAtLoginController(
+            service: SettingsLaunchAtLoginServiceStub()
+        )
+        let view = SettingsPanelView()
+            .dynamicTypeSize(.accessibility5)
+            .defaultAppStorage(defaults)
+            .environmentObject(settingsStore)
+            .environmentObject(notificationManager)
+            .environmentObject(launchAtLoginController)
+            .environmentObject(UpdateController(startsUpdater: false))
+        let hostingController = NSHostingController(rootView: view)
+        hostingController.sizingOptions = []
+        let window = NSWindow(
+            contentRect: NSRect(
+                origin: .zero,
+                size: SettingsWindowSizingPolicy.minimumContentSize
+            ),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentViewController = hostingController
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let formScrollView = try XCTUnwrap(
+            hostingController.view.descendants(ofType: NSScrollView.self).first
+        )
+        let documentHeight = formScrollView.documentView?.bounds.height ?? 0
+        XCTAssertGreaterThan(
+            documentHeight,
+            formScrollView.contentView.bounds.height
+        )
+        let bottomOrigin = NSPoint(
+            x: 0,
+            y: max(
+                documentHeight - formScrollView.contentView.bounds.height,
+                0
+            )
+        )
+        formScrollView.contentView.scroll(to: bottomOrigin)
+        formScrollView.reflectScrolledClipView(formScrollView.contentView)
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(
+            documentHeight,
+            SettingsWindowSizingPolicy.defaultContentSize.height
+        )
+        XCTAssertEqual(
+            formScrollView.contentView.bounds.maxY,
+            documentHeight,
+            accuracy: 1
+        )
+        XCTAssertEqual(settingsStore.settings.intervalMinutes, 35)
+        XCTAssertEqual(settingsStore.settings.dailyTarget, 24)
+        XCTAssertTrue(settingsStore.settings.lunchPauseEnabled)
+        XCTAssertEqual(
+            settingsStore.lastErrorMessage,
+            "测试错误提示仍应保留在可滚动内容中"
+        )
+
+        window.contentViewController = nil
+        window.close()
     }
 
     func testScheduleSettingsRouteKeepsSectionIntentSeparateFromVisiblePane() {
@@ -44,6 +493,10 @@ final class MenuPanelPresentationTests: XCTestCase {
         XCTAssertEqual(
             SettingsSelection.route(for: .notifications),
             SettingsRoute(visiblePane: .notifications, requestedSection: nil)
+        )
+        XCTAssertEqual(
+            SettingsSelection.route(for: .about),
+            SettingsRoute(visiblePane: .about, requestedSection: nil)
         )
     }
 
@@ -111,6 +564,187 @@ final class MenuPanelPresentationTests: XCTestCase {
             ),
             NSSize(width: 420, height: 200)
         )
+    }
+
+    @MainActor
+    func testReminderPanelRetainsMeasuredSizeAfterHostingControllerAttachment() {
+        for isGuiding in [false, true] {
+            let guideEndsAt = isGuiding ? Date().addingTimeInterval(60) : nil
+            let view = ReminderPopupView(
+                message: "按你的身体状况，换个姿势或活动 60 秒。",
+                isGuiding: isGuiding,
+                guideEndsAt: guideEndsAt,
+                onAction: { _ in }
+            )
+            let hostingController = NSHostingController(rootView: view)
+            hostingController.sizingOptions = ReminderPanelSizingPolicy.hostingSizingOptions
+            let measuredSize = hostingController.sizeThatFits(
+                in: ReminderPanelSizingPolicy.fittingConstraint(
+                    maximumHeight: ReminderPanelSizingPolicy.maximumContentHeight
+                )
+            )
+            let contentSize = ReminderPanelSizingPolicy.normalized(measuredSize)
+            let panel = ReminderPanelFactory.make(
+                contentViewController: hostingController,
+                contentSize: contentSize
+            )
+
+            panel.contentView?.layoutSubtreeIfNeeded()
+
+            XCTAssertEqual(
+                panel.contentRect(forFrameRect: panel.frame).size,
+                contentSize
+            )
+            XCTAssertEqual(hostingController.view.frame.size, contentSize)
+            XCTAssertGreaterThan(contentSize.width, 0)
+            XCTAssertGreaterThanOrEqual(
+                contentSize.height,
+                ReminderPanelSizingPolicy.minimumHeight
+            )
+
+            if isGuiding {
+                RunLoop.main.run(until: Date().addingTimeInterval(1.1))
+                panel.contentView?.layoutSubtreeIfNeeded()
+
+                XCTAssertEqual(
+                    panel.contentRect(forFrameRect: panel.frame).size,
+                    contentSize
+                )
+                XCTAssertEqual(hostingController.view.frame.size, contentSize)
+            }
+
+            panel.close()
+        }
+    }
+
+    @MainActor
+    func testReminderPresenterConsumesPresentedActionOnlyOnce() {
+        let presenter = ReminderPresenter()
+        var receivedActions: [ReminderAction] = []
+
+        presenter.presentGuide(endsAt: Date().addingTimeInterval(60)) {
+            receivedActions.append($0)
+        }
+
+        XCTAssertNotNil(presenter.panel)
+
+        presenter.handlePresentedAction(.dismissed)
+        presenter.handlePresentedAction(.dismissed)
+
+        XCTAssertEqual(receivedActions, [.dismissed])
+        XCTAssertNil(presenter.panel)
+    }
+
+    @MainActor
+    func testReminderPresenterRefreshesGuideDeadlineWithoutResizingPanel() throws {
+        let presenter = ReminderPresenter()
+        let originalDeadline = Date().addingTimeInterval(60)
+        let resumedDeadline = originalDeadline.addingTimeInterval(30)
+
+        presenter.presentGuide(endsAt: originalDeadline) { _ in }
+        let panel = try XCTUnwrap(presenter.panel)
+        let contentSize = panel.contentRect(forFrameRect: panel.frame).size
+
+        presenter.updateGuide(endsAt: resumedDeadline)
+
+        XCTAssertTrue(presenter.panel === panel)
+        XCTAssertEqual(
+            panel.contentRect(forFrameRect: panel.frame).size,
+            contentSize
+        )
+        let hostingController = try XCTUnwrap(
+            panel.contentViewController as? NSHostingController<ReminderPopupView>
+        )
+        XCTAssertTrue(hostingController.rootView.isGuiding)
+        XCTAssertEqual(hostingController.rootView.guideEndsAt, resumedDeadline)
+
+        presenter.dismiss()
+    }
+
+    @MainActor
+    func testReminderPresenterRefreshesDeadlineWhileWaitingForPopoverToClose() throws {
+        let presenter = ReminderPresenter()
+        let originalDeadline = Date().addingTimeInterval(60)
+        let resumedDeadline = originalDeadline.addingTimeInterval(30)
+
+        presenter.waitForPopoverToCloseBeforePresentingGuide()
+        presenter.presentGuide(endsAt: originalDeadline) { _ in }
+        XCTAssertNil(presenter.panel)
+
+        presenter.updateGuide(endsAt: resumedDeadline)
+        presenter.popoverDidCloseBeforeGuidePresentation()
+
+        let panel = try XCTUnwrap(presenter.panel)
+        let hostingController = try XCTUnwrap(
+            panel.contentViewController as? NSHostingController<ReminderPopupView>
+        )
+        XCTAssertTrue(hostingController.rootView.isGuiding)
+        XCTAssertEqual(hostingController.rootView.guideEndsAt, resumedDeadline)
+
+        presenter.dismiss()
+    }
+
+    @MainActor
+    func testReminderPresenterWindowCloseCompletesOnceAndClearsPanel() throws {
+        let presenter = ReminderPresenter()
+        var receivedActions: [ReminderAction] = []
+
+        presenter.presentGuide(endsAt: Date().addingTimeInterval(60)) {
+            receivedActions.append($0)
+        }
+        let panel = try XCTUnwrap(presenter.panel)
+
+        XCTAssertTrue(presenter.windowShouldClose(panel))
+        presenter.windowWillClose(
+            Notification(name: NSWindow.willCloseNotification, object: panel)
+        )
+        XCTAssertTrue(presenter.windowShouldClose(panel))
+
+        XCTAssertEqual(receivedActions, [.dismissed])
+        XCTAssertNil(presenter.panel)
+        panel.close()
+    }
+
+    @MainActor
+    func testReminderPresenterShowsCompletionInStableGuidePanelWithoutRepeatingAction() throws {
+        let presenter = ReminderPresenter()
+        var receivedActions: [ReminderAction] = []
+
+        presenter.presentGuide(endsAt: Date().addingTimeInterval(60)) {
+            receivedActions.append($0)
+        }
+        let panel = try XCTUnwrap(presenter.panel)
+        let contentSize = panel.contentRect(forFrameRect: panel.frame).size
+
+        presenter.presentGuideCompletion(
+            message: ActivityGuideCompletionOutcome
+                .proactivePreservingCadence
+                .celebrationText
+        )
+        panel.contentView?.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(presenter.panel === panel)
+        XCTAssertEqual(
+            panel.contentRect(forFrameRect: panel.frame).size,
+            contentSize
+        )
+        XCTAssertEqual(panel.contentViewController?.view.frame.size, contentSize)
+        let completionController = try XCTUnwrap(
+            panel.contentViewController as? NSHostingController<ReminderPopupView>
+        )
+        XCTAssertTrue(completionController.rootView.isCompletion)
+        XCTAssertEqual(
+            completionController.rootView.message,
+            ActivityGuideCompletionOutcome
+                .proactivePreservingCadence
+                .celebrationText
+        )
+
+        completionController.rootView.onAction(.dismissed)
+
+        XCTAssertTrue(receivedActions.isEmpty)
+        XCTAssertNil(presenter.panel)
+        panel.close()
     }
 
     @MainActor
@@ -263,7 +897,15 @@ final class MenuPanelPresentationTests: XCTestCase {
                 phase: .guiding,
                 nextReminderAt: deadline
             ),
-            "完成后重新计时"
+            "完成后开始下一轮"
+        )
+        XCTAssertEqual(
+            TimerRingPresentationText.subtitle(
+                phase: .guiding,
+                nextReminderAt: deadline,
+                isProactiveGuide: true
+            ),
+            "主动活动，提醒节奏继续"
         )
         XCTAssertEqual(
             TimerRingPresentationText.contextLabel(
@@ -271,6 +913,33 @@ final class MenuPanelPresentationTests: XCTestCase {
                 state: .due
             ),
             "活动提醒"
+        )
+    }
+
+    func testActivityGuideCompletionFeedbackExplainsCadenceOutcome() {
+        XCTAssertGreaterThanOrEqual(
+            ReminderTiming.completionFeedbackDuration,
+            6
+        )
+        XCTAssertEqual(
+            ActivityGuideCompletionOutcome.reminderResponse.celebrationText,
+            "做得好，已完成 1 分钟活动。下一轮提醒已开始。"
+        )
+        XCTAssertEqual(
+            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText,
+            "做得好，已完成 1 分钟主动活动。原提醒时间不变。"
+        )
+        XCTAssertEqual(
+            ActivityGuideCompletionOutcome.proactiveSatisfyingUpcomingReminder.celebrationText,
+            "做得好，已完成 1 分钟主动活动。本轮提醒已满足。"
+        )
+        XCTAssertEqual(
+            ActivityGuideCompletionOutcome.proactiveFollowingSchedule.celebrationText,
+            "做得好，已完成 1 分钟主动活动。提醒将按工作时段继续。"
+        )
+        XCTAssertEqual(
+            ActivityGuideCompletionOutcome.proactivePreservingCadence.accessibilityAnnouncement,
+            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText
         )
     }
 
@@ -413,5 +1082,44 @@ final class MenuPanelPresentationTests: XCTestCase {
 
         XCTAssertTrue(progress.showsActivityBreakdown)
         XCTAssertEqual(progress.responseText, "0% · 0/1 次提醒")
+    }
+}
+
+@MainActor
+private final class SettingsNotificationCenterClientStub: NotificationCenterClient {
+    func setDelegate(_ delegate: (any UNUserNotificationCenterDelegate)?) {}
+
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        .authorized
+    }
+
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
+        true
+    }
+
+    func add(_ request: UNNotificationRequest) async throws {}
+}
+
+@MainActor
+private final class SettingsLaunchAtLoginServiceStub: LaunchAtLoginService {
+    var status: LaunchAtLoginStatus = .notFound
+
+    func register() throws {
+        status = .enabled
+    }
+
+    func unregister() throws {
+        status = .notRegistered
+    }
+
+    func openSystemSettingsLoginItems() {}
+}
+
+private extension NSView {
+    func descendants<ViewType: NSView>(ofType type: ViewType.Type) -> [ViewType] {
+        subviews.flatMap { subview in
+            (subview as? ViewType).map { [$0] } ?? []
+                + subview.descendants(ofType: type)
+        }
     }
 }

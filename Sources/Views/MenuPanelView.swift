@@ -118,7 +118,8 @@ enum TimerRingPresentationText {
 
     static func subtitle(
         phase: ReminderPhase,
-        nextReminderAt: Date?
+        nextReminderAt: Date?,
+        isProactiveGuide: Bool = false
     ) -> String {
         let timeText = nextReminderAt?.formatted(date: .omitted, time: .shortened)
 
@@ -132,7 +133,7 @@ enum TimerRingPresentationText {
         case .snoozed:
             return timeText.map { "延后至 \($0)" } ?? "本次提醒已延后"
         case .guiding:
-            return "完成后重新计时"
+            return isProactiveGuide ? "主动活动，提醒节奏继续" : "完成后开始下一轮"
         case .overdue:
             return timeText.map { "等待至 \($0)" } ?? "等待下次可用提醒"
         case .paused:
@@ -171,7 +172,8 @@ struct MenuPanelPresentation: Equatable {
         countdownText = engine.countdownText
         nextReminderText = TimerRingPresentationText.subtitle(
             phase: engine.phase,
-            nextReminderAt: engine.nextReminderAt
+            nextReminderAt: engine.nextReminderAt,
+            isProactiveGuide: engine.isProactiveGuide
         )
         progressFraction = engine.progressFraction
         state = engine.state
@@ -194,9 +196,14 @@ struct MenuPanelLayoutSignature: Equatable {
     let showsActivityBreakdown: Bool
     let showsLegacyRecords: Bool
     let showsResponseRate: Bool
+    let showsAvailableUpdate: Bool
 
     @MainActor
-    init(engine: ReminderEngine, statsStore: StatsStore) {
+    init(
+        engine: ReminderEngine,
+        statsStore: StatsStore,
+        showsAvailableUpdate: Bool = false
+    ) {
         let presentation = MenuPanelPresentation(engine: engine)
         let today = statsStore.today
 
@@ -211,6 +218,7 @@ struct MenuPanelLayoutSignature: Equatable {
             today.legacyUnclassifiedCount > 0
         showsLegacyRecords = today.legacyUnclassifiedCount > 0
         showsResponseRate = today.reminderOpportunityCount > 0
+        self.showsAvailableUpdate = showsAvailableUpdate
     }
 
     init(
@@ -219,7 +227,8 @@ struct MenuPanelLayoutSignature: Equatable {
         hasStatsError: Bool,
         showsActivityBreakdown: Bool,
         showsLegacyRecords: Bool,
-        showsResponseRate: Bool
+        showsResponseRate: Bool,
+        showsAvailableUpdate: Bool = false
     ) {
         self.actionKind = actionKind
         self.hasCurrentReminder = hasCurrentReminder
@@ -227,6 +236,7 @@ struct MenuPanelLayoutSignature: Equatable {
         self.showsActivityBreakdown = showsActivityBreakdown
         self.showsLegacyRecords = showsLegacyRecords
         self.showsResponseRate = showsResponseRate
+        self.showsAvailableUpdate = showsAvailableUpdate
     }
 }
 
@@ -234,6 +244,7 @@ struct MenuPanelView: View {
     @Environment(\.openSettings) private var openSettings
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var statsStore: StatsStore
+    @EnvironmentObject private var updateController: UpdateController
     @ObservedObject private var refreshController: MenuPanelRefreshController
 
     @AppStorage(SettingsSelection.defaultsKey)
@@ -295,6 +306,10 @@ struct MenuPanelView: View {
         VStack(spacing: 14) {
             header(presentation)
 
+            if let availableVersion = updateController.availableVersion {
+                availableUpdate(version: availableVersion)
+            }
+
             if scrollsTodayContent {
                 ScrollView {
                     todayContent(
@@ -355,6 +370,43 @@ struct MenuPanelView: View {
             Spacer()
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func availableUpdate(version: String) -> some View {
+        Button {
+            onRequestClose()
+            DispatchQueue.main.async {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                updateController.checkForUpdates()
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("发现 SitRight v\(version)")
+                        .font(.subheadline.weight(.semibold))
+                    Text("查看更新说明并选择是否安装")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(10)
+            .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("发现 SitRight \(version) 版本更新")
+        .accessibilityHint("打开更新窗口")
     }
 
     private var footer: some View {

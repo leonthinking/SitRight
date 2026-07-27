@@ -11,7 +11,10 @@ struct SitRightApp: App {
                 .environmentObject(appDelegate.container.settingsStore)
                 .environmentObject(appDelegate.container.notificationManager)
                 .environmentObject(appDelegate.container.launchAtLoginController)
+                .environmentObject(appDelegate.container.updateController)
         }
+        .defaultSize(SettingsWindowSizingPolicy.defaultContentSize)
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -23,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
 
+        container.updateController.start()
         self.statusBarController = StatusBarController(container: container)
     }
 }

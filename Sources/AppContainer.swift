@@ -6,6 +6,7 @@ final class AppContainer: ObservableObject {
     let statsStore: StatsStore
     let notificationManager: NotificationManager
     let launchAtLoginController: LaunchAtLoginController
+    let updateController: UpdateController
     let reminderPresenter: ReminderPresenter
     let widgetSyncController: WidgetSyncController
     let reminderSessionStateStore: ReminderSessionStateStore
@@ -35,6 +36,7 @@ final class AppContainer: ObservableObject {
         let statsStore = StatsStore(initialErrorMessage: storagePreparationError)
         let notificationManager = NotificationManager()
         let launchAtLoginController = LaunchAtLoginController()
+        let updateController = UpdateController(startsUpdater: false)
         let reminderPresenter = ReminderPresenter()
         let widgetSyncController = WidgetSyncController()
         let reminderSessionStateStore = ReminderSessionStateStore()
@@ -43,6 +45,7 @@ final class AppContainer: ObservableObject {
         self.statsStore = statsStore
         self.notificationManager = notificationManager
         self.launchAtLoginController = launchAtLoginController
+        self.updateController = updateController
         self.reminderPresenter = reminderPresenter
         self.widgetSyncController = widgetSyncController
         self.reminderSessionStateStore = reminderSessionStateStore

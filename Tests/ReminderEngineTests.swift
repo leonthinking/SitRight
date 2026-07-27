@@ -40,6 +40,14 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.statsStore.today.dailyGoalActivityCount, 1)
         XCTAssertEqual(harness.engine.phase, .accumulating)
         XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 0)
+        XCTAssertEqual(
+            harness.engine.celebrationText,
+            ActivityGuideCompletionOutcome.reminderResponse.celebrationText
+        )
+        XCTAssertEqual(
+            harness.presenter.completionMessages,
+            [ActivityGuideCompletionOutcome.reminderResponse.celebrationText]
+        )
     }
 
     func testPausingDuringGuideAbortsItAndAllowsAnotherActivity() {
@@ -70,6 +78,147 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.statsStore.today.reminderCompletedCount, 0)
         XCTAssertEqual(harness.statsStore.today.dailyGoalActivityCount, 1)
         XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
+    }
+
+    func testEarlyProactiveGuidePreservesOriginalReminderWhileCadenceContinues() throws {
+        let harness = makeHarness { $0.intervalMinutes = 45 }
+        defer { harness.cleanup() }
+        harness.start()
+        let originalReminderAt = try XCTUnwrap(harness.engine.nextReminderAt)
+        harness.advance(by: 5 * 60)
+
+        harness.engine.startActivity()
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 6 * 60)
+        XCTAssertEqual(harness.engine.nextReminderAt, originalReminderAt)
+        XCTAssertEqual(
+            harness.engine.celebrationText,
+            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText
+        )
+        XCTAssertEqual(
+            harness.presenter.completionMessages,
+            [ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText]
+        )
+        XCTAssertEqual(harness.statsStore.today.qualifiedProactiveCount, 1)
+        XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
+
+        let snapshot = WidgetSnapshotStore.load(storageDirectory: harness.storageDirectory)
+        XCTAssertEqual(snapshot.nextReminderAt, originalReminderAt)
+        XCTAssertEqual(snapshot.accumulatedEligibleSeconds, 6 * 60)
+        XCTAssertEqual(snapshot.qualifiedProactiveCount, 1)
+    }
+
+    func testProactiveGuideDoesNotRewriteWidgetSnapshotEveryTick() throws {
+        let harness = makeHarness { $0.intervalMinutes = 45 }
+        defer { harness.cleanup() }
+        harness.start()
+        harness.engine.startActivity()
+        let snapshotURL = harness.storageDirectory.appendingPathComponent(
+            WidgetSnapshotStore.fileName
+        )
+        let snapshotAtGuideStart = try Data(contentsOf: snapshotURL)
+
+        harness.advance(by: 30)
+
+        XCTAssertEqual(
+            try Data(contentsOf: snapshotURL),
+            snapshotAtGuideStart
+        )
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 30)
+
+        harness.advance(by: 30)
+
+        XCTAssertNotEqual(
+            try Data(contentsOf: snapshotURL),
+            snapshotAtGuideStart
+        )
+        let completedSnapshot = WidgetSnapshotStore.load(
+            storageDirectory: harness.storageDirectory
+        )
+        XCTAssertEqual(completedSnapshot.accumulatedEligibleSeconds, 60)
+        XCTAssertEqual(completedSnapshot.qualifiedProactiveCount, 1)
+    }
+
+    func testProactiveGuideJustOutsideProtectionWindowPreservesCadence() throws {
+        let harness = makeHarness { $0.intervalMinutes = 45 }
+        defer { harness.cleanup() }
+        harness.start()
+        let originalReminderAt = try XCTUnwrap(harness.engine.nextReminderAt)
+        harness.advance(by: 33 * 60 + 59)
+
+        harness.engine.startActivity()
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertEqual(harness.engine.remainingInterval, 10 * 60 + 1)
+        XCTAssertEqual(harness.engine.nextReminderAt, originalReminderAt)
+        XCTAssertEqual(
+            harness.engine.celebrationText,
+            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText
+        )
+    }
+
+    func testProactiveGuideAtProtectionBoundarySatisfiesUpcomingReminder() {
+        let harness = makeHarness { $0.intervalMinutes = 45 }
+        defer { harness.cleanup() }
+        harness.start()
+        harness.advance(by: 34 * 60)
+
+        harness.engine.startActivity()
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 0)
+        XCTAssertEqual(harness.engine.remainingInterval, 45 * 60)
+        XCTAssertEqual(
+            harness.engine.nextReminderAt,
+            harness.clock.now.addingTimeInterval(45 * 60)
+        )
+        XCTAssertEqual(
+            harness.engine.celebrationText,
+            ActivityGuideCompletionOutcome.proactiveSatisfyingUpcomingReminder.celebrationText
+        )
+        XCTAssertEqual(harness.statsStore.today.qualifiedProactiveCount, 1)
+        XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
+        XCTAssertEqual(harness.statsStore.today.reminderCompletedCount, 0)
+    }
+
+    func testProactiveGuideInsideProtectionWindowSatisfiesUpcomingReminder() {
+        let harness = makeHarness { $0.intervalMinutes = 45 }
+        defer { harness.cleanup() }
+        harness.start()
+        harness.advance(by: 34 * 60 + 1)
+
+        harness.engine.startActivity()
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 0)
+        XCTAssertEqual(harness.engine.remainingInterval, 45 * 60)
+        XCTAssertEqual(
+            harness.engine.celebrationText,
+            ActivityGuideCompletionOutcome.proactiveSatisfyingUpcomingReminder.celebrationText
+        )
+        XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
+    }
+
+    func testCancellingProactiveGuideDoesNotScoreOrResetAndDueReminderStillFires() {
+        let harness = makeHarness { $0.intervalMinutes = 45 }
+        defer { harness.cleanup() }
+        harness.start()
+        harness.advance(by: 44 * 60 + 50)
+
+        harness.engine.startActivity()
+        harness.advance(by: 20)
+        harness.presenter.send(.dismissed)
+
+        XCTAssertEqual(harness.statsStore.today.dailyGoalActivityCount, 0)
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 45 * 60)
+        XCTAssertEqual(harness.engine.phase, .overdue)
+        XCTAssertEqual(harness.engine.nextReminderAt, harness.clock.now)
+
+        harness.advance(by: 1)
+        XCTAssertEqual(harness.engine.phase, .awaitingResponse)
+        XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 1)
+        XCTAssertEqual(harness.presenter.presentedCount, 2)
     }
 
     func testGuideStartedBeforeDeadlineCanFinishAfterDeadline() throws {
@@ -113,6 +262,85 @@ final class ReminderEngineTests: XCTestCase {
 
         XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 2)
         XCTAssertEqual(harness.engine.phase, .awaitingResponse)
+    }
+
+    func testProactiveGuideCompletionDuringOverdueCooldownSatisfiesUpcomingReminder() throws {
+        let harness = makeHarness()
+        defer { harness.cleanup() }
+        try harness.triggerReminder()
+        let deadline = try XCTUnwrap(harness.engine.activeReminderCycle?.responseDeadline)
+        harness.move(to: deadline.addingTimeInterval(1))
+
+        harness.engine.startActivity()
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertEqual(harness.engine.phase, .accumulating)
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 0)
+        XCTAssertEqual(harness.engine.opportunityCooldownSeconds, 0)
+        XCTAssertEqual(harness.engine.remainingInterval, 5 * 60)
+        XCTAssertEqual(
+            harness.engine.nextReminderAt,
+            harness.clock.now.addingTimeInterval(5 * 60)
+        )
+        XCTAssertEqual(harness.statsStore.today.qualifiedProactiveCount, 1)
+        XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 1)
+        XCTAssertEqual(harness.statsStore.today.reminderCompletedCount, 0)
+    }
+
+    func testCancellingProactiveGuideContinuesOverdueCooldownAndWidgetDeadline() throws {
+        let harness = makeHarness()
+        defer { harness.cleanup() }
+        try harness.triggerReminder()
+        let deadline = try XCTUnwrap(harness.engine.activeReminderCycle?.responseDeadline)
+        harness.move(to: deadline.addingTimeInterval(1))
+
+        harness.engine.startActivity()
+        harness.advance(by: 30)
+        harness.presenter.send(.dismissed)
+
+        XCTAssertEqual(harness.engine.phase, .overdue)
+        XCTAssertEqual(harness.engine.opportunityCooldownSeconds, 4 * 60 + 30)
+        XCTAssertEqual(
+            harness.engine.nextReminderAt,
+            harness.clock.now.addingTimeInterval(4 * 60 + 30)
+        )
+        XCTAssertEqual(harness.statsStore.today.dailyGoalActivityCount, 0)
+        XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 1)
+
+        let snapshot = WidgetSnapshotStore.load(
+            storageDirectory: harness.storageDirectory
+        )
+        XCTAssertEqual(snapshot.nextReminderAt, harness.engine.nextReminderAt)
+        XCTAssertEqual(snapshot.accumulatedEligibleSeconds, 5 * 60)
+    }
+
+    func testRestartDuringProactiveGuideRestoresAdvancedOverdueCooldown() throws {
+        let defaults = makeDefaults()
+        let directory = temporaryDirectory()
+        let first = makeHarness(storageDirectory: directory, defaults: defaults)
+        try first.triggerReminder()
+        let deadline = try XCTUnwrap(first.engine.activeReminderCycle?.responseDeadline)
+        first.move(to: deadline.addingTimeInterval(1))
+        first.engine.startActivity()
+        first.advance(by: 30)
+
+        let restartDate = first.clock.now.addingTimeInterval(2)
+        let restarted = makeHarness(
+            storageDirectory: directory,
+            defaults: defaults,
+            date: restartDate
+        )
+        restarted.start()
+
+        XCTAssertNotEqual(restarted.engine.phase, .guiding)
+        XCTAssertEqual(restarted.engine.phase, .overdue)
+        XCTAssertEqual(restarted.engine.opportunityCooldownSeconds, 4 * 60 + 30)
+        XCTAssertEqual(
+            restarted.engine.nextReminderAt,
+            restartDate.addingTimeInterval(4 * 60 + 30)
+        )
+        XCTAssertEqual(restarted.statsStore.today.dailyGoalActivityCount, 0)
+        restarted.cleanup()
     }
 
     func testSnoozeCanBeUsedOnlyOnceAndGetsFreshResponseWindow() throws {
@@ -213,6 +441,61 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.engine.phase, .overdue)
         for _ in 0..<20 { harness.advance(by: 1) }
         XCTAssertEqual(harness.notificationManager.deliveredCount, 0)
+    }
+
+    func testProactiveActivitySatisfiesDueRoundWhenNoDeliveryChannelExists() throws {
+        let harness = makeHarness { settings in
+            settings.popupEnabled = false
+            settings.notificationsEnabled = false
+        }
+        defer { harness.cleanup() }
+        try harness.triggerReminder()
+        XCTAssertEqual(harness.engine.phase, .overdue)
+        XCTAssertNil(harness.engine.nextReminderAt)
+
+        harness.engine.startActivity()
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertEqual(harness.engine.phase, .accumulating)
+        XCTAssertEqual(harness.engine.remainingInterval, 5 * 60)
+        XCTAssertEqual(
+            harness.engine.nextReminderAt,
+            harness.clock.now.addingTimeInterval(5 * 60)
+        )
+        XCTAssertEqual(
+            harness.engine.celebrationText,
+            ActivityGuideCompletionOutcome
+                .proactiveSatisfyingUpcomingReminder
+                .celebrationText
+        )
+        XCTAssertEqual(harness.statsStore.today.qualifiedProactiveCount, 1)
+        XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
+        XCTAssertEqual(harness.statsStore.today.reminderCompletedCount, 0)
+    }
+
+    func testProactiveActivitySatisfiesDueRoundAfterNotificationDeliveryFailure() throws {
+        let notifier = StubNotificationManager(results: [false])
+        let harness = makeHarness(notificationManager: notifier) { settings in
+            settings.popupEnabled = false
+            settings.notificationsEnabled = true
+        }
+        defer { harness.cleanup() }
+        try harness.triggerReminder()
+        XCTAssertEqual(harness.engine.phase, .overdue)
+        XCTAssertNil(harness.engine.nextReminderAt)
+
+        harness.engine.startActivity()
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertEqual(harness.engine.phase, .accumulating)
+        XCTAssertEqual(harness.engine.remainingInterval, 5 * 60)
+        XCTAssertEqual(
+            harness.engine.nextReminderAt,
+            harness.clock.now.addingTimeInterval(5 * 60)
+        )
+        XCTAssertEqual(harness.statsStore.today.qualifiedProactiveCount, 1)
+        XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
+        XCTAssertEqual(harness.statsStore.today.reminderCompletedCount, 0)
     }
 
     func testNotificationOnlySuccessCreatesOnePendingOpportunity() throws {
@@ -326,22 +609,37 @@ final class ReminderEngineTests: XCTestCase {
         sleepHarness.start()
         sleepHarness.engine.startActivity()
         sleepHarness.advance(by: 20)
+        XCTAssertEqual(sleepHarness.engine.accumulatedEligibleSeconds, 20)
         let sleptAt = sleepHarness.clock.now
         sleepHarness.engine.systemWillSleep(at: sleptAt)
         sleepHarness.clock.now = sleptAt.addingTimeInterval(30)
         sleepHarness.engine.suspensionDidEnd(at: sleepHarness.clock.now)
         XCTAssertEqual(sleepHarness.engine.guideElapsedSeconds, 20)
+        XCTAssertEqual(sleepHarness.engine.accumulatedEligibleSeconds, 20)
+        XCTAssertEqual(
+            sleepHarness.presenter.guideDeadlines,
+            [
+                sleptAt.addingTimeInterval(40),
+                sleepHarness.clock.now.addingTimeInterval(40)
+            ]
+        )
 
         let lockHarness = makeHarness()
         defer { lockHarness.cleanup() }
         lockHarness.start()
         lockHarness.engine.startActivity()
         lockHarness.advance(by: 20)
+        XCTAssertEqual(lockHarness.engine.accumulatedEligibleSeconds, 20)
         let lockedAt = lockHarness.clock.now
         lockHarness.engine.sessionDidBecomeInactive(at: lockedAt)
         lockHarness.clock.now = lockedAt.addingTimeInterval(30)
         lockHarness.engine.suspensionDidEnd(at: lockHarness.clock.now)
         XCTAssertEqual(lockHarness.engine.guideElapsedSeconds, 50)
+        XCTAssertEqual(lockHarness.engine.accumulatedEligibleSeconds, 20)
+        XCTAssertEqual(
+            lockHarness.presenter.guideDeadlines,
+            [lockedAt.addingTimeInterval(40)]
+        )
     }
 
     func testLongSleepCancelsGuideAndDoesNotScore() {
@@ -359,6 +657,101 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertNotEqual(harness.engine.phase, .guiding)
         XCTAssertEqual(harness.statsStore.today.dailyGoalActivityCount, 0)
         XCTAssertEqual(harness.engine.remainingInterval, 5 * 60)
+    }
+
+    func testProactiveGuideCrossingWorkScheduleEndUsesScheduleReset() throws {
+        let base = try XCTUnwrap(
+            Calendar.current.date(
+                byAdding: .second,
+                value: 30,
+                to: makeLocalDate(hour: 17, minute: 59)
+            )
+        )
+        let harness = makeHarness(date: base) { settings in
+            settings.intervalMinutes = 45
+            settings.workStartMinutes = 9 * 60
+            settings.workEndMinutes = 18 * 60
+        }
+        defer { harness.cleanup() }
+        harness.start()
+
+        harness.engine.startActivity()
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertEqual(harness.statsStore.today.qualifiedProactiveCount, 1)
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 0)
+        XCTAssertEqual(harness.engine.phase, .outsideSchedule)
+        XCTAssertEqual(
+            harness.engine.celebrationText,
+            ActivityGuideCompletionOutcome.proactiveFollowingSchedule.celebrationText
+        )
+        XCTAssertEqual(
+            harness.presenter.completionMessages,
+            [ActivityGuideCompletionOutcome.proactiveFollowingSchedule.celebrationText]
+        )
+    }
+
+    func testProactiveGuideNearScheduleEndUsesActualReminderDateForProtection() throws {
+        let base = try makeLocalDate(hour: 17, minute: 13)
+        let harness = makeHarness(date: base) { settings in
+            settings.intervalMinutes = 45
+            settings.workStartMinutes = 9 * 60
+            settings.workEndMinutes = 18 * 60
+        }
+        defer { harness.cleanup() }
+        harness.start()
+        harness.advance(by: 40 * 60)
+        let originalReminderAt = try XCTUnwrap(harness.engine.nextReminderAt)
+        XCTAssertGreaterThan(
+            originalReminderAt.timeIntervalSince(harness.clock.now),
+            ReminderTiming.proactiveReminderProtectionWindow
+        )
+
+        harness.engine.startActivity()
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 41 * 60)
+        XCTAssertEqual(harness.engine.nextReminderAt, originalReminderAt)
+        XCTAssertEqual(
+            harness.engine.celebrationText,
+            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText
+        )
+    }
+
+    func testScheduleSettingChangeDuringProactiveGuideCancelsGuideAndResetsCadence() {
+        let harness = makeHarness { $0.intervalMinutes = 45 }
+        defer { harness.cleanup() }
+        harness.start()
+        harness.advance(by: 5 * 60)
+        harness.engine.startActivity()
+        harness.advance(by: 20)
+
+        harness.settingsStore.update { $0.intervalMinutes = 60 }
+
+        XCTAssertNotEqual(harness.engine.phase, .guiding)
+        XCTAssertEqual(harness.statsStore.today.dailyGoalActivityCount, 0)
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 0)
+        XCTAssertEqual(harness.engine.remainingInterval, 60 * 60)
+    }
+
+    func testDateChangeDuringProactiveGuideCancelsGuideWithoutScoring() throws {
+        let base = try XCTUnwrap(
+            Calendar.current.date(
+                byAdding: .second,
+                value: 30,
+                to: makeLocalDate(hour: 23, minute: 59)
+            )
+        )
+        let harness = makeHarness(date: base) { $0.intervalMinutes = 45 }
+        defer { harness.cleanup() }
+        harness.start()
+        harness.engine.startActivity()
+
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+
+        XCTAssertNotEqual(harness.engine.phase, .guiding)
+        XCTAssertEqual(harness.statsStore.today.dailyGoalActivityCount, 0)
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 0)
     }
 
     func testRestartRestoresAccumulatorButDoesNotCountOfflineTime() {
@@ -399,6 +792,34 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(restarted.statsStore.today.dailyGoalActivityCount, 0)
         XCTAssertEqual(restarted.statsStore.today.reminderCompletedCount, 0)
         XCTAssertEqual(restarted.engine.accumulatedEligibleSeconds, 5 * 60)
+        restarted.cleanup()
+    }
+
+    func testRestartDuringProactiveGuideRestoresAdvancedCadenceWithoutScoringOfflineTime() {
+        let defaults = makeDefaults()
+        let directory = temporaryDirectory()
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let first = makeHarness(
+            storageDirectory: directory,
+            defaults: defaults,
+            date: start
+        ) { $0.intervalMinutes = 45 }
+        first.start()
+        first.advance(by: 5 * 60)
+        first.engine.startActivity()
+        first.advance(by: 30)
+
+        let restarted = makeHarness(
+            storageDirectory: directory,
+            defaults: defaults,
+            date: first.clock.now.addingTimeInterval(2)
+        ) { $0.intervalMinutes = 45 }
+        restarted.start()
+
+        XCTAssertNotEqual(restarted.engine.phase, .guiding)
+        XCTAssertEqual(restarted.statsStore.today.dailyGoalActivityCount, 0)
+        XCTAssertEqual(restarted.engine.accumulatedEligibleSeconds, 5 * 60 + 30)
+        XCTAssertEqual(restarted.engine.remainingInterval, 39 * 60 + 30)
         restarted.cleanup()
     }
 
@@ -607,6 +1028,8 @@ final class ReminderEngineTests: XCTestCase {
     private final class StubReminderPresenter: ReminderPresenting {
         private(set) var presentedCount = 0
         private(set) var dismissedCount = 0
+        private(set) var completionMessages: [String] = []
+        private(set) var guideDeadlines: [Date] = []
         private var handler: ((ReminderAction) -> Void)?
 
         func present(message: String, completion: @escaping (ReminderAction) -> Void) {
@@ -614,8 +1037,22 @@ final class ReminderEngineTests: XCTestCase {
             handler = completion
         }
 
+        func presentGuide(endsAt: Date, completion: @escaping (ReminderAction) -> Void) {
+            presentedCount += 1
+            guideDeadlines.append(endsAt)
+            handler = completion
+        }
+
+        func updateGuide(endsAt: Date) {
+            guideDeadlines.append(endsAt)
+        }
+
         func dismiss() {
             dismissedCount += 1
+        }
+
+        func presentGuideCompletion(message: String) {
+            completionMessages.append(message)
         }
 
         func send(_ action: ReminderAction) {

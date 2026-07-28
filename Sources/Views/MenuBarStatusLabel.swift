@@ -7,7 +7,7 @@ struct MenuBarStatusLabel: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "figure.stand")
+            Image(systemName: engine.statusSystemImage)
                 .foregroundStyle(statusLabelColor)
 
             if settingsStore.settings.menuBarCountdownEnabled {
@@ -36,6 +36,12 @@ struct MenuBarStatusLabel: View {
             }
         }
         .accessibilityLabel("SitRight 坐正")
+        .accessibilityValue(ReminderAccessibility.statusText(
+            statusText: engine.statusText,
+            countdownText: engine.countdownText,
+            state: engine.state,
+            showsCountdown: settingsStore.settings.menuBarCountdownEnabled
+        ))
     }
 
     private var statusLabelColor: Color {
@@ -44,6 +50,7 @@ struct MenuBarStatusLabel: View {
 
     private var isAttentionState: Bool {
         guard settingsStore.settings.menuBarCountdownEnabled else { return false }
+        if engine.canCompleteReminder { return true }
 
         switch engine.state {
         case .due:
@@ -52,4 +59,5 @@ struct MenuBarStatusLabel: View {
             return false
         }
     }
+
 }

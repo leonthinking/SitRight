@@ -1,55 +1,169 @@
 import SwiftUI
 
-struct TimerRingView: View {
-    let progress: Double
-    let title: String
-    let subtitle: String
-    let state: ReminderRunState
+enum TimerRingLayout {
+    static let diameter: CGFloat = 168
+    static let accessibilityDiameter: CGFloat = 200
+    static let lineWidth: CGFloat = 10
+    static let strokeInset = lineWidth / 2
+    static let partialLineCap: CGLineCap = .butt
 
-    var body: some View {
-        ZStack {
-            Circle()
-                .stroke(.quaternary, lineWidth: 12)
-
-            Circle()
-                .trim(from: 0, to: ringProgress)
-                .stroke(
-                    ringColor.gradient,
-                    style: StrokeStyle(lineWidth: 12, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-                .animation(.smooth(duration: 0.35), value: ringProgress)
-
-            VStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(ringColor)
-
-                Text(title)
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .minimumScaleFactor(0.72)
-                    .lineLimit(1)
-
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 20)
-        }
-        .frame(width: 220, height: 220)
-        .frame(maxWidth: .infinity)
+    static func diameter(usesAccessibilityLayout: Bool) -> CGFloat {
+        usesAccessibilityLayout ? accessibilityDiameter : diameter
     }
+}
 
-    private var ringProgress: Double {
+enum TimerRingProgress {
+    static func resolve(
+        progress: Double,
+        state: ReminderRunState,
+        phase: ReminderPhase
+    ) -> Double {
+        let clampedProgress = min(max(progress, 0), 1)
+
         switch state {
         case .paused, .disabled, .outsideHours:
             return 0
         case .due:
-            return 1
+            return phase == .guiding ? clampedProgress : 1
         case .running:
-            return min(max(progress, 0.02), 1)
+            return clampedProgress
+        }
+    }
+}
+
+struct TimerRingView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .title) private var scaledTitleSize: CGFloat = 28
+    @ScaledMetric(relativeTo: .body) private var scaledIconSize: CGFloat = 18
+    let progress: Double
+    let contextLabel: String
+    let title: String
+    let subtitle: String
+    let state: ReminderRunState
+    let phase: ReminderPhase
+
+    var body: some View {
+        VStack(spacing: usesAccessibilityLayout ? 8 : 0) {
+            ringSurface
+                .frame(width: ringDiameter, height: ringDiameter)
+
+            if usesAccessibilityLayout {
+                VStack(spacing: 3) {
+                    Text(contextLabel)
+                        .font(.body.weight(.medium))
+
+                    Text(subtitle)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(contextLabel)
+        .accessibilityValue("\(title)，\(subtitle)")
+    }
+
+    private var ringSurface: some View {
+        ZStack {
+            Circle()
+                .inset(by: TimerRingLayout.strokeInset)
+                .stroke(.quaternary, lineWidth: TimerRingLayout.lineWidth)
+                .accessibilityHidden(true)
+
+            progressRing
+
+            VStack(spacing: 4) {
+                if !usesAccessibilityLayout {
+                    Text(contextLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Image(systemName: icon)
+                    .font(
+                        .system(
+                            size: min(scaledIconSize, 28),
+                            weight: .semibold
+                        )
+                    )
+                    .foregroundStyle(ringColor)
+                    .accessibilityHidden(true)
+
+                Text(title)
+                    .font(
+                        .system(
+                            size: min(scaledTitleSize, 44),
+                            weight: .bold,
+                            design: .rounded
+                        )
+                    )
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.65)
+                    .lineLimit(1)
+
+                if !usesAccessibilityLayout {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 14)
+        }
+    }
+
+    private var usesAccessibilityLayout: Bool {
+        dynamicTypeSize.isAccessibilitySize
+    }
+
+    private var ringDiameter: CGFloat {
+        TimerRingLayout.diameter(usesAccessibilityLayout: usesAccessibilityLayout)
+    }
+
+    private var ringProgress: Double {
+        TimerRingProgress.resolve(
+            progress: progress,
+            state: state,
+            phase: phase
+        )
+    }
+
+    @ViewBuilder
+    private var progressRing: some View {
+        if ringProgress >= 1 {
+            Circle()
+                .inset(by: TimerRingLayout.strokeInset)
+                .stroke(
+                    ringColor.gradient,
+                    style: StrokeStyle(
+                        lineWidth: TimerRingLayout.lineWidth,
+                        lineCap: .round
+                    )
+                )
+                .accessibilityHidden(true)
+        } else {
+            Circle()
+                .inset(by: TimerRingLayout.strokeInset)
+                .trim(from: 0, to: ringProgress)
+                .stroke(
+                    ringColor.gradient,
+                    style: StrokeStyle(
+                        lineWidth: TimerRingLayout.lineWidth,
+                        lineCap: TimerRingLayout.partialLineCap
+                    )
+                )
+                .rotationEffect(.degrees(-90))
+                .animation(
+                    reduceMotion ? nil : .smooth(duration: 0.35),
+                    value: ringProgress
+                )
+                .accessibilityHidden(true)
         }
     }
 

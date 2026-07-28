@@ -2,7 +2,7 @@ import Foundation
 
 struct AppSettings: Codable, Equatable {
     var remindersEnabled: Bool = true
-    var intervalMinutes: Int = 45
+    var intervalMinutes: Int = 50
     var dailyTarget: Int = 8
     var menuBarCountdownEnabled: Bool = true
 
@@ -13,9 +13,9 @@ struct AppSettings: Codable, Equatable {
     var lunchStartMinutes: Int = 12 * 60
     var lunchEndMinutes: Int = 13 * 60 + 30
 
-    var popupEnabled: Bool = true
+    var popupEnabled: Bool = false
     var notificationsEnabled: Bool = true
-    var soundEnabled: Bool = true
+    var soundEnabled: Bool = false
     var launchAtLogin: Bool = false
 
     enum CodingKeys: String, CodingKey {
@@ -70,11 +70,10 @@ struct AppSettings: Codable, Equatable {
             copy.workEndMinutes = min(copy.workStartMinutes + 60, 24 * 60)
         }
 
-        copy.lunchStartMinutes = copy.lunchStartMinutes.clamped(to: copy.workStartMinutes...copy.workEndMinutes)
-        copy.lunchEndMinutes = copy.lunchEndMinutes.clamped(to: copy.workStartMinutes...copy.workEndMinutes)
-        if copy.lunchStartMinutes >= copy.lunchEndMinutes {
-            copy.lunchEndMinutes = min(copy.lunchStartMinutes + 30, copy.workEndMinutes)
-        }
+        let latestLunchStart = max(copy.workStartMinutes, copy.workEndMinutes - 30)
+        copy.lunchStartMinutes = copy.lunchStartMinutes.clamped(to: copy.workStartMinutes...latestLunchStart)
+        let earliestLunchEnd = min(copy.lunchStartMinutes + 30, copy.workEndMinutes)
+        copy.lunchEndMinutes = copy.lunchEndMinutes.clamped(to: earliestLunchEnd...copy.workEndMinutes)
 
         return copy
     }

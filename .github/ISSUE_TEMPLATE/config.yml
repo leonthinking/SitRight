@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 私密报告安全漏洞
+    url: https://github.com/leonthinking/SitRight/security/advisories/new
+    about: 不要公开安全漏洞、利用步骤、凭据或个人数据。
+  - name: SitRight GitHub Releases
+    url: https://github.com/leonthinking/SitRight/releases
+    about: 下载最新版或查看已有版本说明。

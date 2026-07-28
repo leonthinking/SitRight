@@ -302,6 +302,118 @@ validate_origin_url() {
   esac
 }
 
+verify_remote_main_commit() {
+  local expected_commit="$1"
+  local remote_url="$2"
+  local remote_main_count
+  local remote_main_output
+  local remote_main_sha
+
+  if ! remote_main_output="$(
+    git -C "$ROOT_DIR" ls-remote \
+      --heads \
+      "$remote_url" \
+      refs/heads/main
+  )"; then
+    echo "error: unable to verify the remote main branch" >&2
+    return 1
+  fi
+  remote_main_count="$(
+    /usr/bin/awk \
+      'NF { count += 1 } END { print count + 0 }' \
+      <<<"$remote_main_output"
+  )"
+  remote_main_sha="$(
+    /usr/bin/awk 'NF { print $1 }' <<<"$remote_main_output"
+  )"
+  if [ "$remote_main_count" != "1" ] ||
+    [ "$remote_main_sha" != "$expected_commit" ]; then
+    echo "error: remote main must resolve uniquely to the verified release commit" >&2
+    return 1
+  fi
+}
+
+verify_remote_community_contract() {
+  local required_path
+  local local_blob_sha
+  local remote_blob_sha
+
+  for required_path in \
+    LICENSE \
+    PRIVACY.md \
+    SECURITY.md \
+    SUPPORT.md \
+    CONTRIBUTING.md \
+    Sources/Resources/SitRight-License.txt \
+    Sources/Resources/Third-Party-Notices.txt \
+    .github/PULL_REQUEST_TEMPLATE.md \
+    .github/ISSUE_TEMPLATE/config.yml \
+    .github/ISSUE_TEMPLATE/feature_request.yml \
+    .github/ISSUE_TEMPLATE/bug_report.yml \
+    .github/ISSUE_TEMPLATE/support_request.yml; do
+    if ! remote_blob_sha="$(
+      gh api \
+        "/repos/$GH_REPOSITORY/contents/$required_path?ref=main" \
+        --jq '.sha'
+    )"; then
+      echo "error: merge $required_path into the remote main branch before publishing community links" >&2
+      return 1
+    fi
+    if ! local_blob_sha="$(
+      git -C "$ROOT_DIR" rev-parse "HEAD:$required_path"
+    )"; then
+      echo "error: the release commit is missing required community file $required_path" >&2
+      return 1
+    fi
+    if [ -z "$remote_blob_sha" ] || [ "$remote_blob_sha" != "$local_blob_sha" ]; then
+      echo "error: remote main must contain the exact verified $required_path before publishing community links" >&2
+      return 1
+    fi
+  done
+}
+
+verify_remote_repository_contract() {
+  local private_reporting_json
+  local repository_json
+
+  if ! repository_json="$(gh api "/repos/$GH_REPOSITORY")"; then
+    echo "error: unable to verify the public repository settings" >&2
+    return 1
+  fi
+  if ! private_reporting_json="$(
+    gh api "/repos/$GH_REPOSITORY/private-vulnerability-reporting"
+  )"; then
+    echo "error: unable to verify Private Vulnerability Reporting" >&2
+    return 1
+  fi
+  /usr/bin/python3 -c '
+import json
+import sys
+
+repository = json.load(sys.stdin)
+private_reporting = json.loads(sys.argv[1])
+checks = (
+    (
+        "repository must remain public",
+        repository.get("private") is False
+        and repository.get("visibility") == "public"
+    ),
+    (
+        "default branch must be main",
+        repository.get("default_branch") == "main",
+    ),
+    ("GitHub Issues must be enabled", repository.get("has_issues") is True),
+    (
+        "Private Vulnerability Reporting must be enabled",
+        private_reporting.get("enabled") is True,
+    ),
+)
+failures = [message for message, passed in checks if not passed]
+if failures:
+    raise SystemExit("repository contract failed: " + "; ".join(failures))
+' "$private_reporting_json" <<<"$repository_json"
+}
+
 team_identifier_for() {
   local target="$1"
 
@@ -445,6 +557,8 @@ verify_release_app() {
   local setting_key
   local expected_setting_value
   local actual_setting_value
+  local legal_source
+  local legal_name
 
   if [ "$(
     /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" \
@@ -457,6 +571,20 @@ verify_release_app() {
     echo "error: release archive contains an unexpected bundle identifier" >&2
     return 1
   fi
+
+  while IFS='|' read -r legal_source legal_name; do
+    if [ ! -f "$legal_source" ] ||
+      [ ! -f "$app_path/Contents/Resources/$legal_name" ] ||
+      ! /usr/bin/cmp -s \
+        "$legal_source" \
+        "$app_path/Contents/Resources/$legal_name"; then
+      echo "error: release archive is missing the reviewed legal resource $legal_name" >&2
+      return 1
+    fi
+  done <<EOF
+$ROOT_DIR/Sources/Resources/SitRight-License.txt|SitRight-License.txt
+$ROOT_DIR/Sources/Resources/Third-Party-Notices.txt|Third-Party-Notices.txt
+EOF
 
   for plist in \
     "$app_path/Contents/Info.plist" \
@@ -1014,6 +1142,8 @@ main() {
   validate_origin_url "$origin_push_url" "origin push URL"
   gh auth status -h github.com >/dev/null
   recover_pending_publication "$tag" "$commit_sha"
+  verify_remote_community_contract
+  verify_remote_repository_contract
   prepare_verified_sparkle_tools "$TEMP_DIR"
   if [ "$SPARKLE_TOOLS_ARCHIVE_SHA256" != "$expected_sparkle_tools_archive_sha256" ] ||
     [ "$GENERATE_APPCAST_SHA256" != "$expected_generate_appcast_sha256" ] ||
@@ -1027,6 +1157,9 @@ main() {
     echo "error: current commit differs from the verified release candidate" >&2
     return 1
   fi
+  verify_remote_main_commit \
+    "$commit_sha" \
+    "$origin_fetch_url"
   local_tag_commit="$(git -C "$ROOT_DIR" rev-list -n 1 "$tag" 2>/dev/null || true)"
   if [ "$local_tag_commit" != "$commit_sha" ]; then
     echo "error: local tag $tag must point to $commit_sha" >&2
@@ -1222,6 +1355,9 @@ print(
     echo "error: remote tag changed before Draft publication" >&2
     return 1
   fi
+  verify_remote_main_commit \
+    "$commit_sha" \
+    "$origin_fetch_url"
 
   write_publication_state "$tag" "$commit_sha"
   PUBLICATION_TAG="$tag"
@@ -1257,6 +1393,9 @@ print(
     echo "error: remote tag changed during Release publication" >&2
     return 1
   fi
+  verify_remote_main_commit \
+    "$commit_sha" \
+    "$origin_fetch_url"
   latest_after_publish_json="$(
     gh api \
       --hostname github.com \

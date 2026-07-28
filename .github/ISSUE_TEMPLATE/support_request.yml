@@ -1,0 +1,57 @@
+name: 使用问题
+description: 询问安装、设置、更新、小组件或日常使用方法。
+title: "[使用问题] "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢使用 SitRight。提交内容会公开显示；安全漏洞请使用私密漏洞报告，不要在这里披露。
+
+  - type: input
+    id: version
+    attributes:
+      label: SitRight 版本
+      description: 可在“设置 → 关于”查看版本号与构建号。
+      placeholder: 例如：0.2.3（8）
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS 版本
+      placeholder: 例如：macOS 15.5
+    validations:
+      required: true
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: 问题类型
+      options:
+        - 首次安装或 Gatekeeper
+        - 应用内更新
+        - 提醒与活动记录
+        - 设置或登录项
+        - 桌面小组件
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 你想完成什么
+      description: 请说明目标、当前看到的界面或提示，以及已经尝试的操作。
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我确认没有提交密码、令牌、私钥、个人文件路径或不必要的活动数据。
+          required: true

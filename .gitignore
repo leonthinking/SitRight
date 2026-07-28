@@ -2,6 +2,7 @@
 .build/
 build/
 DerivedData/
+Marketing/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/

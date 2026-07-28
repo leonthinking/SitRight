@@ -23,6 +23,27 @@ enum LaunchAtLoginStatus: Equatable {
     }
 }
 
+enum LaunchAtLoginIssue: Equatable {
+    case serviceNotFound
+    case operationFailed
+
+    var userMessage: String {
+        switch self {
+        case .serviceNotFound:
+            return "macOS 暂时未能识别 SitRight 登录项"
+        case .operationFailed:
+            return "macOS 未能更改登录项，请在系统设置中检查后重试"
+        }
+    }
+}
+
+enum LaunchAtLoginRecovery: Equatable {
+    case none
+    case approvalRequired
+    case serviceNotFound
+    case operationFailed
+}
+
 @MainActor
 protocol LaunchAtLoginService: AnyObject {
     var status: LaunchAtLoginStatus { get }
@@ -53,34 +74,64 @@ final class SystemLaunchAtLoginService: LaunchAtLoginService {
 @MainActor
 final class LaunchAtLoginController: ObservableObject {
     @Published private(set) var status: LaunchAtLoginStatus
+    @Published private(set) var issue: LaunchAtLoginIssue?
 
     private let service: any LaunchAtLoginService
 
     init(service: any LaunchAtLoginService = SystemLaunchAtLoginService()) {
         self.service = service
         self.status = service.status
+        self.issue = status == .notFound ? .serviceNotFound : nil
     }
 
     var isRegistered: Bool {
         status == .enabled || status == .requiresApproval
     }
 
+    var recovery: LaunchAtLoginRecovery {
+        if issue == .operationFailed {
+            return .operationFailed
+        }
+        switch status {
+        case .requiresApproval:
+            return .approvalRequired
+        case .notFound:
+            return .serviceNotFound
+        case .notRegistered, .enabled:
+            return .none
+        }
+    }
+
     func refreshStatus() {
         status = service.status
+        if status == .notFound {
+            issue = .serviceNotFound
+        } else {
+            issue = nil
+        }
     }
 
     func setEnabled(_ enabled: Bool) throws {
-        defer { refreshStatus() }
-
-        switch (enabled, status) {
-        case (true, .notRegistered):
-            try service.register()
-        case (false, .enabled), (false, .requiresApproval):
-            try service.unregister()
-        case (true, .enabled), (true, .requiresApproval),
-             (true, .notFound), (false, .notRegistered), (false, .notFound):
-            break
+        do {
+            switch (enabled, status) {
+            case (true, .notRegistered), (true, .notFound):
+                try service.register()
+            case (false, .enabled), (false, .requiresApproval):
+                try service.unregister()
+            case (true, .enabled), (true, .requiresApproval),
+                 (false, .notRegistered), (false, .notFound):
+                break
+            }
+        } catch {
+            status = service.status
+            issue = .operationFailed
+            throw error
         }
+        refreshStatus()
+    }
+
+    func retryStatusDetection() {
+        refreshStatus()
     }
 
     func openSystemSettingsLoginItems() {

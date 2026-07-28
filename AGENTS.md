@@ -95,5 +95,9 @@ Handle these with extra care and explicit verification:
 - Do not duplicate shared App/Widget types; place cross-target data in `Sources/Shared`.
 - Packaged App/Widget code must not silently fall back from the App Group to separate sandbox storage.
 - Do not edit generated artifacts or local build products.
+- Do not record personal runtime evidence in tracked documentation. This
+  includes user-home paths, account identifiers, recovery locations, real
+  activity dates or counts, and hashes derived from a user's private data.
+  Keep such evidence in an ignored local note when it is required for recovery.
 - Keep user-facing copy consistent with the current Chinese product language.
 - Final handoff should list changed files, verification performed, and any command that could not be run.

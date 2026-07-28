@@ -69,6 +69,15 @@ The app is intentionally lightweight and local-first. There is no backend servic
 - `package_update.sh` presents only the ZIP to `generate_appcast`, then adds the manually installable DMG after the signed feed is verified. `publish_update_release.sh` requires the GitHub Release notes to match the notes hash recorded for the signed appcast and revalidates the local and uploaded assets. It records the final Draft-to-public transition in persistent local recovery state; a failed transition is restored to Draft when GitHub is reachable, while an unconfirmable remote state blocks later publication for manual resolution.
 - No GitHub Actions release workflow is used. Apple and Sparkle private keys must never enter the repository, logs, or GitHub Release assets.
 
+## Open Source and Community
+
+- SitRight-owned source is distributed under the repository-root MIT License; the same text is bundled for offline viewing in the About settings pane.
+- The About pane links to the public source repository, privacy/security guidance, private vulnerability reporting, and dedicated GitHub Issue forms for support, feature requests, and bug reports. It also shows the bundled Sparkle 2.9.2 third-party notices.
+- Activity history and settings remain local to the user's device and App Group. SitRight does not automatically upload them to the developer or a remote service, and it does not collect or upload crash reports or diagnostic logs.
+- There is no in-app diagnostic-log reader or uploader. Do not add a dead “error log” row without separately designing its privacy, redaction, retention, and user-consent boundaries.
+- Before publishing a build that contains these community links, all legal, privacy, security, support, contribution, Issue Form/config, and PR-template files must exactly match the remote `main` branch. The repository must remain public with Issues and Private Vulnerability Reporting enabled.
+- Tracked project documentation must not contain user-home paths, account identifiers, recovery locations, real activity evidence, or hashes derived from private user data.
+
 ## Core Behavior
 
 `ReminderEngine` is the central runtime state machine.
@@ -167,4 +176,4 @@ Use this gap when deciding whether a manual packaged build is needed for a chang
 - `AppSettings` has a custom decoder with defaults for missing fields. Preserve this pattern when adding settings.
 - `AppSettings.normalized()` clamps user-controlled values. Extend normalization with tests when adding numeric settings.
 - `ActivityHistory`, `ActivityDay`, and `WidgetSnapshot` use default-tolerant decoding. Preserve that compatibility when adding stored fields.
-- Launch-at-login is expected to fail or be misleading when running outside a packaged app; UI already reports that case.
+- `SMAppService.Status.notFound` means ServiceManagement could not find the service; it is not proof that the process is unbundled. The UI keeps registration retry, status refresh, and System Settings recovery available without changing the persisted settings format.

@@ -27,7 +27,7 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2026 Leon Zhang. All rights reserved.</string>
+    <string>Copyright © 2026 Leon Zhang. MIT License.</string>
     <key>SUAutomaticallyUpdate</key>
     <false/>
     <key>SUAllowsAutomaticUpdates</key>

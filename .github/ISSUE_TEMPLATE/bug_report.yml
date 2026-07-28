@@ -1,0 +1,99 @@
+name: 报告问题
+description: 报告稳定或间歇出现的错误、崩溃或异常行为。
+title: "[问题] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。SitRight 不会自动上传活动记录、设置或诊断日志；请只提交排查这个问题所需的信息。
+
+  - type: input
+    id: version
+    attributes:
+      label: SitRight 版本
+      description: 可在“设置 → 关于”查看版本号与构建号。
+      placeholder: 例如：0.2.2（7）
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS 版本
+      placeholder: 例如：macOS 15.5
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: 安装来源
+      options:
+        - GitHub Releases
+        - 应用内更新
+        - 本地源码构建
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 已知触发条件或复现步骤
+      description: 如果无法稳定复现，请说明问题出现前的操作和环境。
+      placeholder: |
+        1. 打开……
+        2. 点击……
+        3. 观察到……
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: 出现频率
+      options:
+        - 每次都会出现
+        - 经常出现
+        - 偶尔出现
+        - 只出现过一次
+        - 暂时无法判断
+    validations:
+      required: true
+
+  - type: input
+    id: last_seen
+    attributes:
+      label: 最近一次出现
+      description: 可填写大致时间或“刚刚”，不需要提供活动历史。
+      placeholder: 例如：今天下午，更新到 0.2.3 后
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 补充信息
+      description: 可以添加截图或手动选择的崩溃报告片段，请先检查并移除敏感信息。
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我确认没有提交密码、令牌、私钥、个人文件路径或不必要的活动数据。
+          required: true

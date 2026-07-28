@@ -217,7 +217,7 @@ final class MenuPanelPresentationTests: XCTestCase {
         window.close()
     }
 
-    func testAboutSettingsDeclaresUpdateControlsAndPreviewBoundary() throws {
+    func testAboutSettingsDeclaresUpdateAndCommunityControls() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -233,6 +233,127 @@ final class MenuPanelPresentationTests: XCTestCase {
         XCTAssertTrue(settingsSource.contains("Button(\"检查更新…\")"))
         XCTAssertTrue(settingsSource.contains("\"查看 GitHub Releases\""))
         XCTAssertTrue(settingsSource.contains("GitHub 社区预览版未经 Developer ID 公证"))
+        XCTAssertTrue(settingsSource.contains("Section(\"开源与社区\")"))
+        XCTAssertTrue(settingsSource.contains("title: \"开源协议\""))
+        XCTAssertTrue(settingsSource.contains("detail: \"MIT\""))
+        XCTAssertTrue(settingsSource.contains("CommunityLinks.repositoryURL"))
+        XCTAssertTrue(settingsSource.contains("\"给 SitRight 点个 Star 🌟\""))
+        XCTAssertTrue(settingsSource.contains("CommunityLinks.featureRequestURL"))
+        XCTAssertTrue(settingsSource.contains("title: \"功能建议\""))
+        XCTAssertTrue(settingsSource.contains("CommunityLinks.bugReportURL"))
+        XCTAssertTrue(settingsSource.contains("title: \"报告问题\""))
+        XCTAssertTrue(settingsSource.contains("CommunityLinks.supportRequestURL"))
+        XCTAssertTrue(settingsSource.contains("title: \"使用帮助\""))
+        XCTAssertTrue(settingsSource.contains("CommunityLinks.privacyURL"))
+        XCTAssertTrue(settingsSource.contains("title: \"隐私说明\""))
+        XCTAssertTrue(settingsSource.contains("CommunityLinks.securityReportURL"))
+        XCTAssertTrue(settingsSource.contains("title: \"安全问题\""))
+        XCTAssertTrue(settingsSource.contains("isExternal: true"))
+        XCTAssertTrue(settingsSource.contains("arrow.up.right.square"))
+        XCTAssertEqual(
+            settingsSource.components(
+                separatedBy: "SettingsExternalLink("
+            ).count - 1,
+            9
+        )
+        XCTAssertFalse(
+            settingsSource.contains("Link(destination: CommunityLinks")
+        )
+        XCTAssertTrue(settingsSource.contains("需要 GitHub 账号"))
+        XCTAssertTrue(settingsSource.contains("title: \"第三方许可\""))
+        XCTAssertTrue(settingsSource.contains("LegalNoticeSheet(notice: notice)"))
+        XCTAssertTrue(settingsSource.contains("title: \"在线查看\\(notice.title)\""))
+        XCTAssertTrue(settingsSource.contains(".keyboardShortcut(.cancelAction)"))
+        XCTAssertFalse(settingsSource.contains("错误日志"))
+        XCTAssertFalse(settingsSource.contains("请从打包后的 .app 启动后设置"))
+        XCTAssertTrue(settingsSource.contains("Button(\"重新检测\")"))
+        XCTAssertTrue(settingsSource.contains("Button(\"打开登录项…\")"))
+        XCTAssertTrue(
+            settingsSource.contains(
+                "switch launchAtLoginController.recovery"
+            )
+        )
+        XCTAssertTrue(
+            settingsSource.contains(
+                "case .serviceNotFound, .operationFailed"
+            )
+        )
+        XCTAssertFalse(
+            settingsSource.contains("settingsStore.setError("),
+            "登录项错误应只由 LaunchAtLoginController 的结构化状态展示"
+        )
+
+        let accountNotice = try XCTUnwrap(
+            settingsSource.range(of: "需要 GitHub 账号")
+        )
+        let firstCommunityDestination = try XCTUnwrap(
+            settingsSource.range(of: "CommunityLinks.repositoryURL")
+        )
+        XCTAssertLessThan(
+            accountNotice.lowerBound,
+            firstCommunityDestination.lowerBound
+        )
+    }
+
+    @MainActor
+    func testAboutSettingsFitsDefaultWindowWithoutScrolling() throws {
+        let suiteName = "MenuPanelPresentationTests.about.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            SettingsPane.about.rawValue,
+            forKey: SettingsSelection.defaultsKey
+        )
+        defaults.set(
+            true,
+            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+        )
+
+        let view = SettingsPanelView()
+            .defaultAppStorage(defaults)
+            .environmentObject(SettingsStore(defaults: defaults))
+            .environmentObject(
+                NotificationManager(
+                    client: SettingsNotificationCenterClientStub()
+                )
+            )
+            .environmentObject(
+                LaunchAtLoginController(
+                    service: SettingsLaunchAtLoginServiceStub()
+                )
+            )
+            .environmentObject(UpdateController(startsUpdater: false))
+        let hostingController = NSHostingController(rootView: view)
+        hostingController.sizingOptions = []
+        let window = NSWindow(
+            contentRect: NSRect(
+                origin: .zero,
+                size: SettingsWindowSizingPolicy.defaultContentSize
+            ),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentViewController = hostingController
+        window.setContentSize(SettingsWindowSizingPolicy.defaultContentSize)
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let visibleScrollView = try XCTUnwrap(
+            hostingController.view
+                .descendants(ofType: NSScrollView.self)
+                .first(where: { !$0.isHidden })
+        )
+        let documentHeight = visibleScrollView.documentView?.bounds.height ?? 0
+        XCTAssertLessThanOrEqual(
+            documentHeight,
+            visibleScrollView.contentView.bounds.height
+        )
+
+        window.contentViewController = nil
+        window.close()
     }
 
     @MainActor

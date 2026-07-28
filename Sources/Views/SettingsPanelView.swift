@@ -229,6 +229,7 @@ struct SettingsPanelView: View {
     @AppStorage(SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey)
     private var hasCompletedLegacySizeMigration = false
     @State private var intervalSelectionOverride: ReminderIntervalChoice?
+    @State private var presentedLegalNotice: LegalNotice?
     @FocusState private var focusedSetting: SettingsFocusTarget?
     @AccessibilityFocusState private var accessibilityFocusedSetting: SettingsFocusTarget?
 
@@ -284,6 +285,9 @@ struct SettingsPanelView: View {
         }
         .onChange(of: selectedPane) {
             migrateSelectedPaneIfNeeded()
+        }
+        .sheet(item: $presentedLegalNotice) { notice in
+            LegalNoticeSheet(notice: notice)
         }
     }
 
@@ -471,6 +475,12 @@ struct SettingsPanelView: View {
                     color: updateStatusColor
                 )
 
+                if let lastCheckText = updateController.lastCheckText {
+                    Text(lastCheckText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 HStack {
                     Button("检查更新…") {
                         updateController.checkForUpdates()
@@ -479,9 +489,11 @@ struct SettingsPanelView: View {
 
                     Spacer()
 
-                    Link(
-                        "查看 GitHub Releases",
-                        destination: UpdateConfiguration.releasesURL
+                    SettingsExternalLink(
+                        title: "查看 GitHub Releases",
+                        detail: "GitHub",
+                        destination: UpdateConfiguration.releasesURL,
+                        accessibilityHint: "在浏览器中打开 SitRight GitHub Releases"
                     )
                 }
 
@@ -491,6 +503,84 @@ struct SettingsPanelView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("开源与社区") {
+                Text("提交使用问题、功能建议、安全报告或 Bug 时，需要 GitHub 账号。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    presentedLegalNotice = .sitRight
+                } label: {
+                    SettingsNavigationRow(
+                        title: "开源协议",
+                        detail: "MIT"
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("查看 SitRight 的 MIT 开源协议")
+
+                SettingsExternalLink(
+                    title: "源代码",
+                    detail: "GitHub",
+                    destination: CommunityLinks.repositoryURL,
+                    accessibilityHint: "在浏览器中打开 SitRight 源代码"
+                )
+
+                SettingsExternalLink(
+                    title: "给 SitRight 点个 Star 🌟",
+                    detail: "GitHub",
+                    destination: CommunityLinks.starURL,
+                    accessibilityHint: "在浏览器中打开 SitRight GitHub 仓库"
+                )
+
+                SettingsExternalLink(
+                    title: "功能建议",
+                    detail: "GitHub",
+                    destination: CommunityLinks.featureRequestURL,
+                    accessibilityHint: "在 GitHub 提交功能建议"
+                )
+
+                SettingsExternalLink(
+                    title: "报告问题",
+                    detail: "GitHub",
+                    destination: CommunityLinks.bugReportURL,
+                    accessibilityHint: "在 GitHub 报告 SitRight 问题"
+                )
+
+                SettingsExternalLink(
+                    title: "使用帮助",
+                    detail: "GitHub",
+                    destination: CommunityLinks.supportRequestURL,
+                    accessibilityHint: "在 GitHub 提交 SitRight 使用问题"
+                )
+
+                SettingsExternalLink(
+                    title: "隐私说明",
+                    detail: "GitHub",
+                    destination: CommunityLinks.privacyURL,
+                    accessibilityHint: "在浏览器中查看 SitRight 隐私说明"
+                )
+
+                SettingsExternalLink(
+                    title: "安全问题",
+                    detail: "私密报告",
+                    destination: CommunityLinks.securityReportURL,
+                    accessibilityHint: "在 GitHub 私密报告 SitRight 安全问题"
+                )
+
+                Button {
+                    presentedLegalNotice = .thirdParty
+                } label: {
+                    SettingsNavigationRow(
+                        title: "第三方许可",
+                        detail: "Sparkle 2.9.2"
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("查看 SitRight 使用的第三方软件许可")
             }
         }
         .formStyle(.grouped)
@@ -502,7 +592,7 @@ struct SettingsPanelView: View {
             return .green
         case .available:
             return .blue
-        case .unavailable, .failed:
+        case .unavailable, .failed, .noCompatibleUpdate:
             return .orange
         case .idle, .checking, .downloading, .installing:
             return .secondary
@@ -555,19 +645,18 @@ struct SettingsPanelView: View {
                 set: { isEnabled in
                     do {
                         try launchAtLoginController.setEnabled(isEnabled)
-                        settingsStore.setError(nil)
                     } catch {
-                        settingsStore.setError("开机启动设置失败：请从打包后的 .app 启动后再试")
+                        // The controller keeps a structured, recoverable issue
+                        // that is rendered inline below this toggle.
                     }
                     settingsStore.update {
                         $0.launchAtLogin = launchAtLoginController.isRegistered
                     }
                 }
             ))
-            .disabled(launchAtLoginController.status == .notFound)
 
-            switch launchAtLoginController.status {
-            case .requiresApproval:
+            switch launchAtLoginController.recovery {
+            case .approvalRequired:
                 HStack(spacing: 8) {
                     StatusMessage(
                         text: "需要在系统设置中允许",
@@ -583,13 +672,30 @@ struct SettingsPanelView: View {
                     .buttonStyle(.link)
                     .font(.caption)
                 }
-            case .notFound:
-                StatusMessage(
-                    text: "请从打包后的 .app 启动后设置",
-                    systemImage: "shippingbox",
-                    color: .secondary
-                )
-            case .notRegistered, .enabled:
+            case .serviceNotFound, .operationFailed:
+                VStack(alignment: .leading, spacing: 6) {
+                    StatusMessage(
+                        text: launchAtLoginController.issue?.userMessage ??
+                            "macOS 暂时未能识别 SitRight 登录项",
+                        systemImage: "exclamationmark.triangle.fill",
+                        color: .orange
+                    )
+
+                    HStack(spacing: 12) {
+                        Button("重新检测") {
+                            refreshLaunchAtLoginStatus()
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption)
+
+                        Button("打开登录项…") {
+                            launchAtLoginController.openSystemSettingsLoginItems()
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                    }
+                }
+            case .none:
                 EmptyView()
             }
         }
@@ -702,6 +808,15 @@ struct SettingsPanelView: View {
 
     private func reconcileLaunchAtLoginSetting() {
         launchAtLoginController.refreshStatus()
+        synchronizeLaunchAtLoginSetting()
+    }
+
+    private func refreshLaunchAtLoginStatus() {
+        launchAtLoginController.retryStatusDetection()
+        synchronizeLaunchAtLoginSetting()
+    }
+
+    private func synchronizeLaunchAtLoginSetting() {
         let actualValue = launchAtLoginController.isRegistered
         guard settingsStore.settings.launchAtLogin != actualValue else { return }
         settingsStore.update { $0.launchAtLogin = actualValue }
@@ -732,6 +847,118 @@ private struct StatusMessage: View {
         }
         .font(.caption)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct SettingsNavigationRow: View {
+    let title: String
+    var detail: String? = nil
+    var isExternal = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .foregroundStyle(.primary)
+
+            Spacer(minLength: 12)
+
+            if let detail {
+                Text(detail)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Image(systemName: isExternal ? "arrow.up.right.square" : "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct SettingsExternalLink: View {
+    let title: String
+    var detail: String? = nil
+    let destination: URL
+    let accessibilityHint: String
+
+    var body: some View {
+        Link(destination: destination) {
+            SettingsNavigationRow(
+                title: title,
+                detail: detail,
+                isExternal: true
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(accessibilityHint)
+    }
+}
+
+struct LegalNoticeSheet: View {
+    static let minimumContentSize = NSSize(width: 520, height: 460)
+
+    let notice: LegalNotice
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(notice.title)
+                    .font(.title2.bold())
+
+                Spacer()
+
+                Button("完成") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding()
+
+            Divider()
+
+            ScrollView {
+                if let noticeText {
+                    Text(noticeText)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding()
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+
+                        Text("无法读取许可文本")
+                            .font(.headline)
+
+                        SettingsExternalLink(
+                            title: "在线查看\(notice.title)",
+                            detail: "GitHub",
+                            destination: notice.fallbackURL,
+                            accessibilityHint: "在浏览器中打开\(notice.title)"
+                        )
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 300)
+                    .padding()
+                }
+            }
+        }
+        .frame(
+            minWidth: Self.minimumContentSize.width,
+            minHeight: Self.minimumContentSize.height
+        )
+    }
+
+    private var noticeText: String? {
+        try? LegalNoticeLoader.text(for: notice)
     }
 }
 

@@ -18,19 +18,23 @@ Use it for multi-step work, deferred follow-ups, and handoffs. Do not use it as 
 
 ## Backlog
 
-### TASK-20260725-launch-at-login-not-found
-
-- Status: Backlog
-- Goal: Diagnose why `SMAppService.mainApp.status` is `.notFound` for the correctly signed app running from `/Applications`, and replace the misleading packaged-app-only explanation with accurate recovery guidance.
-- Impacted areas: Launch-at-login service status interpretation, packaged update/install behavior, settings copy, and ServiceManagement regression/manual coverage.
-- Verification: Not started.
-- Handoff notes: The observed process path is `/Applications/SitRight.app/Contents/MacOS/SitRight`, bundle identifier is `com.leon.SitRight`, and TeamIdentifier is `973KFG9CL9`; do not treat `.notFound` as proof that the app is unbundled. Keep this investigation separate from the settings-window sizing task.
+No tracked tasks yet.
 
 ## Ready
 
 No tracked tasks yet.
 
 ## In Progress
+
+### TASK-20260728-community-quality-release
+
+- Status: In Progress
+- Goal: Complete SitRight's public community, privacy, security, update-status, login-item recovery, and 0.2.3 community-preview release contract without rewriting existing public history.
+- Impacted areas: About settings, ServiceManagement and Sparkle presentation, community health files, public-document privacy, release scripts, personal release Skill, tests, README, and GitHub repository settings.
+- Verification: In progress. Publication remains blocked until the local `gh` environment is authenticated and the exact candidate passes isolated tests, signed packaging, two adversarial reviews, merge-commit rebuilding, and two-version update acceptance.
+- Handoff notes: Preserve App Group and stored data formats. Do not publish `Marketing/`, build outputs, personal runtime evidence, credentials, or a fifth Release asset.
+
+## Done
 
 ### TASK-20260725-proactive-activity-cadence
 
@@ -64,14 +68,20 @@ No tracked tasks yet.
 - Verification: `swift test` passed 119/119; `./Scripts/build_app.sh` completed with `** BUILD SUCCEEDED **` and produced `build/SitRight.app`; `git diff --check` passed; architecture and product adversarial reviews completed with confirmed findings repaired and regression coverage added.
 - Handoff notes: Preserve existing saved interval and delivery preferences; apply 50 minutes, notifications on, sound off, and strong popup off only to fresh installs. Do not edit the generated Xcode project. Packaged notification authorization/action, VoiceOver, lock/sleep, and widget visual checks remain manual follow-up because they require running the signed app and changing system state.
 
-## Done
+### TASK-20260727-open-source-community
+
+- Status: Done
+- Goal: Add an explicit MIT license and complete the About pane's source, Star, feature-request, bug-report, and third-party-license community entry points without introducing diagnostic collection or upload.
+- Impacted areas: About settings presentation, bundled legal notices, GitHub Issue forms, README, project context, packaging resources, and regression coverage.
+- Verification: `swift test --disable-sandbox` passed 207/207; `./Scripts/build_app.sh` completed with `** BUILD SUCCEEDED **`. The final arm64 App and Widget passed strict signature validation with TeamIdentifier `973KFG9CL9`, exact App Group entitlements, and no `get-task-allow`. MIT and complete Sparkle 2.9.2 third-party notices are byte-identical between reviewed sources and the packaged App; plist/YAML parsing, shell syntax, secret/conflict scans, and `git diff --check` passed. Production Hosting tests cover the About pane and nonzero legal sheets. Two independent adversarial reviews completed; privacy wording, third-party notice integrity, pre-replacement resource validation, and exact remote-main Git blob gates were repaired and re-reviewed with no remaining P0-P2.
+- Handoff notes: Preserve the unrelated untracked `Marketing/` directory. SitRight's MIT text applies to SitRight-owned source; Sparkle 2.9.2 notices remain separate and bundled. Error/crash-log UI is intentionally deferred until a privacy-bounded diagnostic design exists. The next public Release intentionally fails closed until `LICENSE` and both Issue Forms on remote `main` exactly match the verified release commit. Real VoiceOver order, Tab focus, external-link opening, and Esc dismissal remain manual desktop acceptance items.
 
 ### TASK-20260727-github-community-updates
 
 - Status: Done
 - Goal: Add a Sparkle 2.9.2 GitHub community-preview update path with daily gentle checks, an About settings pane, verified local release assets, and a confirmation-gated GitHub Release step.
 - Impacted areas: App lifecycle and menu/settings presentation, Sparkle dependency and sandbox services, nested signing, DMG staging, local appcast/ZIP publication scripts, README, and security/compatibility regression coverage.
-- Verification: Script syntax, plist lint, and `git diff --check` passed; `swift test --disable-sandbox` passed 198/198, including short-sleep guide-deadline synchronization before and after the menu popover closes, interrupted Draft-to-public recovery, and rejection of recovery state that does not match the current manifest and remote tag. `./Scripts/build_app.sh` and `OPEN_DMG_ON_SUCCESS=0 ./Scripts/package_dmg.sh` passed with strict nested Sparkle/App/Widget signatures, exact sandbox/App Group/Mach entitlements, TeamIdentifier `973KFG9CL9`, arm64 architecture, and a two-entry read-only DMG. The release scripts now reacquire the fixed Sparkle 2.9.2 official SwiftPM archive with checksum `b83e37436774556ed055e0244b297ef2c790e0737393bf65bf495fcbba6eed65`, bind individual release-tool hashes into the immutable manifest, and preserve a hard-blocking recovery record when GitHub publication state cannot be confirmed. An isolated committed candidate produced and verified a signed local appcast/ZIP/DMG set; the hardened publication verifier accepted the complete assets and prior ZIP/appcast tamper probes were rejected. The final published hashes are bound to the same immutable Release asset set in `SHA256SUMS`, rather than copied into this source task board. Publication confirmation/authentication gates were exercised without changing GitHub. Independent adversarial reviews found release atomicity, target-repository, revalidation, key-backup, immutable-candidate/Release Notes/source-build TOCTOU, actual-latest selection, final-App security-setting, update-status, mutable release-tool input, public-transition recovery, recovery-state authorization, and guide deadline issues; all confirmed findings were repaired with focused regression coverage.
+- Verification: Script syntax, plist lint, and `git diff --check` passed; `swift test --disable-sandbox` passed 198/198, including short-sleep guide-deadline synchronization before and after the menu popover closes, interrupted Draft-to-public recovery, and rejection of recovery state that does not match the current manifest and remote tag. Signed App/DMG validation covered nested Sparkle/App/Widget signatures, exact sandbox/App Group/Mach entitlements, the required TeamIdentifier, arm64 architecture, and a two-entry read-only DMG. Release tools and immutable assets were pinned and independently reverified without copying private keys or asset hashes into this task board. Publication confirmation/authentication gates were exercised without changing GitHub. Independent adversarial reviews found release atomicity, target-repository, revalidation, key-backup, immutable-candidate/Release Notes/source-build TOCTOU, actual-latest selection, final-App security-setting, update-status, mutable release-tool input, public-transition recovery, recovery-state authorization, and guide deadline issues; all confirmed findings were repaired with focused regression coverage.
 - Handoff notes: `0.2.2 (7)` / `v0.2.2` is the designated first update-enabled community preview. It remains a manual-install bootstrap; a real lower-to-higher replacement/relaunch test requires a later build. Publication must use the confirmation-gated local scripts, a restore-tested offline Sparkle-key backup, and the system-keyring `gh` environment. Preserve activity/settings/Widget storage formats and all unrelated `Marketing/` work.
 
 ### TASK-20260725-guide-window-content
@@ -119,16 +129,16 @@ No tracked tasks yet.
 - Status: Done
 - Goal: Restore Widget access to the existing App Group history and prevent an ad-hoc build without the required TeamIdentifier from replacing the working installation.
 - Impacted areas: Build/install signing validation, packaged App/Widget registration, README, project context, and live Widget shared-data verification.
-- Verification: `swift test` passed 121/121, `bash -n Scripts/build_app.sh` and `git diff --check` passed, and the signed build/install completed. Both installed binaries strictly verify against the Apple Development chain, use TeamIdentifier `973KFG9CL9`, contain the matching App Group entitlement, and have no debugging entitlement. `containermanagerd` approved App Group access for both bundle identifiers; the shared snapshot was rewritten with the real `1/12` daily progress while the primary and backup history hashes remained unchanged; `chronod` successfully rebuilt both annual and quarterly timelines, and the quarterly live archive contains `1/12` and the 90-day total `108` rather than the former `0/8` placeholder. Two independent adversarial reviews found and then confirmed closure of install rollback, registration postcondition, regression-test coverage, data-evidence, and documentation issues.
-- Handoff notes: The repaired build 6 is installed at `/Applications/SitRight.app` as the only active/running copy selected by PlugInKit. LaunchServices may retain inactive development/backup registrations, so checks should resolve the actual path rather than assume a bundle ID is unique. The rejected ad-hoc build is backed up at `build/SitRight-before-team-signed-build6.app`; the historical recovery backup remains at `/Users/leon/Documents/SitRight-Recovery-20260723-095011/`. The build script now refuses to replace `/Applications/SitRight.app` unless both the source App and Widget have TeamIdentifier `973KFG9CL9`, stages and verifies the candidate before same-volume replacement renames, rolls back on post-replacement failure, and verifies the same unique PlugInKit registration postcondition for both successful installation and rollback restoration.
+- Verification: `swift test` passed 121/121, `bash -n Scripts/build_app.sh` and `git diff --check` passed, and the signed build/install completed. Both installed binaries strictly verified against the Apple Development chain, used the required TeamIdentifier and App Group, and had no debugging entitlement. App Group access, shared-snapshot refresh, annual/quarterly Widget timelines, install rollback, registration postconditions, and documentation were independently verified without retaining personal activity values in this public task board.
+- Handoff notes: The repaired packaged App was verified as the only active main process selected by PlugInKit. LaunchServices may retain inactive development registrations, so checks should resolve the actual path rather than assume a bundle ID is unique. Build and recovery copies remain local-only. The build script rejects installation unless the App and Widget have the required TeamIdentifier, stages and verifies candidates, and restores the prior App on post-replacement failure.
 
 ### TASK-20260723-widget-history-display-recovery
 
 - Status: Done
 - Goal: Recover the existing SitRight activity information after the new quarterly widget appeared empty.
 - Impacted areas: Installed-app process identity, App Group activity history, Widget snapshot/timeline cache, and recovery backup.
-- Verification: The App Group primary history remained valid with 20 days of records from 2026-06-30 through 2026-07-23. At snapshot time its SHA-256 matched the recovery copy at `b80a698f1346643a508c0ca820a64229971da0e747f4aecbca0bd354144545cd`; the later live-file hash changed only because the running app recorded 2026-07-23 cycle state changes, while all earlier days stayed object-identical. A decoder compiled from the production shared models reported 18 qualified days in the rolling 90-day window, 107 total qualified activities, 14 this week, and an 18-day streak. The unintended `build/SitRight.app` process and duplicate active plug-in registration were removed, `/Applications/SitRight.app` was launched as the sole main process, and `chronod` reported successful external-trigger timeline reloads for both `SitRightQuarterActivityWidget` and `SitRightActivityWidget`.
-- Handoff notes: No history payload was replaced. A durable point-in-time copy of the App Group primary/backup/snapshot plus the app-container fallback, preferences, and checksum manifest is stored at `/Users/leon/Documents/SitRight-Recovery-20260723-095011/`; an additional working copy remains at `build/SitRight-data-recovery-20260723-095011/`. Keep the installed app as the sole running SitRight main process when checking packaged Widget behavior, and never restore this snapshot over a newer live history without comparing timestamps and hashes first.
+- Verification: The App Group primary history and its recovery copy were decoded with production shared models, compared for continuity, and used to rebuild both annual and quarterly Widget timelines. Duplicate development processes and plug-in registrations were removed without replacing the live history payload. Exact personal dates, counts, hashes, and recovery paths remain in local recovery evidence rather than this public task board.
+- Handoff notes: No history payload was replaced. Keep one installed main process active when checking packaged Widget behavior, and never restore a recovery snapshot over newer live history without comparing the local evidence first.
 
 ### TASK-20260722-quarter-widget
 

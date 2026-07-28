@@ -6,9 +6,7 @@ struct UpdateConfiguration: Equatable {
     static let expectedFeedURL = URL(
         string: "https://github.com/leonthinking/SitRight/releases/latest/download/appcast.xml"
     )!
-    static let releasesURL = URL(
-        string: "https://github.com/leonthinking/SitRight/releases"
-    )!
+    static let releasesURL = CommunityLinks.releasesURL
     static let publicKeyPlaceholder =
         "REPLACE_WITH_SPARKLE_ED25519_PUBLIC_KEY"
     static let scheduledCheckInterval: TimeInterval = 24 * 60 * 60
@@ -63,6 +61,7 @@ enum UpdatePresentationState: Equatable {
     case idle
     case checking
     case current
+    case noCompatibleUpdate
     case available(version: String)
     case downloading(version: String)
     case installing(version: String)
@@ -78,6 +77,8 @@ enum UpdatePresentationState: Equatable {
             return "正在检查更新…"
         case .current:
             return "当前已是最新版"
+        case .noCompatibleUpdate:
+            return "未发现适用于此 Mac 的更新"
         case .available(let version):
             return "发现 SitRight v\(version)"
         case .downloading(let version):
@@ -99,6 +100,8 @@ enum UpdatePresentationState: Equatable {
             return "arrow.triangle.2.circlepath"
         case .current:
             return "checkmark.circle.fill"
+        case .noCompatibleUpdate:
+            return "desktopcomputer.trianglebadge.exclamationmark"
         case .available:
             return "arrow.down.circle.fill"
         case .installing:
@@ -117,16 +120,20 @@ final class UpdateController: NSObject, ObservableObject {
     @Published private(set) var availableVersion: String?
     @Published private(set) var canCheckForUpdates = false
     @Published private(set) var automaticallyChecksForUpdates = true
+    @Published private(set) var lastCheckDate: Date?
 
     private var standardUpdaterController: SPUStandardUpdaterController?
     private var cancellables = Set<AnyCancellable>()
+    private let now: () -> Date
 
     init(
         configuration: UpdateConfiguration = UpdateConfiguration(),
-        startsUpdater: Bool = true
+        startsUpdater: Bool = true,
+        now: @escaping () -> Date = Date.init
     ) {
         self.configuration = configuration
         self.state = configuration.isUpdaterConfigured ? .idle : .unavailable
+        self.now = now
         super.init()
 
         guard configuration.isUpdaterConfigured else { return }
@@ -150,6 +157,7 @@ final class UpdateController: NSObject, ObservableObject {
         canCheckForUpdates = controller.updater.canCheckForUpdates
         automaticallyChecksForUpdates =
             controller.updater.automaticallyChecksForUpdates
+        lastCheckDate = controller.updater.lastUpdateCheckDate
 
         controller.updater.publisher(for: \.canCheckForUpdates)
             .receive(on: RunLoop.main)
@@ -167,7 +175,15 @@ final class UpdateController: NSObject, ObservableObject {
         if state == .idle && !automaticallyChecksForUpdates {
             return "自动检查已关闭"
         }
+        if state == .current {
+            return "当前已是最新版：\(configuration.currentVersion)（\(configuration.currentBuild)）"
+        }
         return state.statusText
+    }
+
+    var lastCheckText: String? {
+        guard let lastCheckDate else { return nil }
+        return "最近检查：\(lastCheckDate.formatted(date: .omitted, time: .shortened))"
     }
 
     var isConfigured: Bool {
@@ -192,7 +208,7 @@ final class UpdateController: NSObject, ObservableObject {
 
     func prepareForUserInitiatedUpdatePresentation() {
         switch state {
-        case .idle, .current, .failed:
+        case .idle, .current, .noCompatibleUpdate, .failed:
             state = .checking
         case .unavailable, .checking, .available, .downloading, .installing:
             break
@@ -200,13 +216,36 @@ final class UpdateController: NSObject, ObservableObject {
     }
 
     func recordFoundUpdate(version: String, showsGentleReminder: Bool) {
+        lastCheckDate = now()
         state = .available(version: version)
         availableVersion = showsGentleReminder ? version : nil
     }
 
     func recordNoUpdateFound() {
+        lastCheckDate = now()
         state = .current
         availableVersion = nil
+    }
+
+    func recordNoUpdateFound(error: NSError) {
+        lastCheckDate = now()
+        availableVersion = nil
+
+        let rawReason = (error.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?
+            .intValue
+        switch rawReason {
+        case Int(SPUNoUpdateFoundReason.onLatestVersion.rawValue),
+             Int(SPUNoUpdateFoundReason.onNewerThanLatestVersion.rawValue):
+            state = .current
+        case Int(SPUNoUpdateFoundReason.systemIsTooOld.rawValue),
+             Int(SPUNoUpdateFoundReason.systemIsTooNew.rawValue),
+             Int(SPUNoUpdateFoundReason.hardwareDoesNotSupportARM64.rawValue),
+             Int(SPUNoUpdateFoundReason.unknown.rawValue),
+             .none:
+            state = .noCompatibleUpdate
+        default:
+            state = .noCompatibleUpdate
+        }
     }
 
     func recordDownloadStarted(version: String) {
@@ -220,6 +259,7 @@ final class UpdateController: NSObject, ObservableObject {
     }
 
     func recordUpdateFailure() {
+        lastCheckDate = now()
         state = .failed
         availableVersion = nil
     }
@@ -228,7 +268,7 @@ final class UpdateController: NSObject, ObservableObject {
         if error.domain == SUSparkleErrorDomain {
             switch error.code {
             case Int(SUError.noUpdateError.rawValue):
-                recordNoUpdateFound()
+                recordNoUpdateFound(error: error)
                 return
             case Int(SUError.installationCanceledError.rawValue),
                  Int(SUError.installationAuthorizeLaterError.rawValue):
@@ -262,7 +302,7 @@ extension UpdateController: SPUUpdaterDelegate {
         _ updater: SPUUpdater,
         error: any Error
     ) {
-        recordNoUpdateFound()
+        recordNoUpdateFound(error: error as NSError)
     }
 
     func updater(

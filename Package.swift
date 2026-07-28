@@ -23,7 +23,10 @@ let package = Package(
             dependencies: [
                 .product(name: "Sparkle", package: "Sparkle")
             ],
-            path: "Sources"
+            path: "Sources",
+            resources: [
+                .copy("Resources")
+            ]
         ),
         .testTarget(
             name: "SitRightTests",

@@ -20,7 +20,7 @@ SitRight 不检测坐姿、真实运动或键鼠活动。活动记录来自你�
 - macOS WidgetKit 桌面小组件
 - 开机启动开关
 - 每天后台检查 GitHub 社区预览版更新，并在菜单中轻提示
-- 「关于」页可查看版本、手动检查更新和调整自动检查
+- 「关于」页可查看版本、更新、开源协议、隐私/安全说明和社区入口
 - 聚焦今日状态与快捷操作的菜单栏面板，低频选项集中在标准 macOS 设置窗口
 
 ## 提醒节奏与主动活动
@@ -49,6 +49,19 @@ swift run
 ## Agent Workflow
 
 代理接手开发前请先阅读 [`AGENTS.md`](AGENTS.md)。该文件记录项目结构、生成物禁改规则、现有构建/测试命令和 Codex 工作流入口。
+
+## 开源与社区
+
+SitRight 源代码采用 [MIT License](LICENSE)。你可以使用、修改、分发和商业使用，但分发的软件或主要代码副本必须保留原版权与许可声明；软件按现状提供，不附带担保。
+
+「设置 → 关于 → 开源与社区」提供以下入口：
+
+- 在应用内离线查看 SitRight 的 MIT 协议和 [Sparkle 2.9.2 第三方许可](Sources/Resources/Third-Party-Notices.txt)。
+- 查看[源代码](https://github.com/leonthinking/SitRight)或为项目点 Star。
+- 通过结构化表单提交[使用问题](https://github.com/leonthinking/SitRight/issues/new?template=support_request.yml)、[功能建议](https://github.com/leonthinking/SitRight/issues/new?template=feature_request.yml)和[问题报告](https://github.com/leonthinking/SitRight/issues/new?template=bug_report.yml)。
+- 阅读[隐私说明](PRIVACY.md)、[安全政策](SECURITY.md)、[支持说明](SUPPORT.md)和[贡献指南](CONTRIBUTING.md)；未修复的安全漏洞请使用 GitHub 私密漏洞报告，不要创建公开 Issue。
+
+提醒设置和提醒会话状态保存在主应用的本地容器；活动历史和 Widget 快照通过 App Group 在 App 与 Widget 之间共享。SitRight 不会向开发者或远程服务自动上传这些数据，也不会采集或上传诊断日志。提交 Issue 前请主动移除密码、令牌、私钥、个人文件路径及其他不必要的敏感信息。Sparkle 与其包含的第三方代码继续遵循各自的许可，SitRight 的 MIT 协议不会替代这些条款。
 
 ## 打包依赖
 
@@ -83,6 +96,9 @@ SITRIGHT_INSTALL_TO_APPLICATIONS=1 ./Scripts/build_app.sh
 open /Applications/SitRight.app
 ```
 
+“登录时打开 SitRight”使用 macOS ServiceManagement。系统若暂时无法识别登录项，
+应用会提供重新检测和打开“登录项与扩展”的入口；该状态不能单独证明 App 未打包。
+
 ## 打包为 DMG
 
 参考 CapCap 的可拖拽安装流程，SitRight 提供一条完整的 DMG 打包命令：
@@ -108,10 +124,11 @@ SitRight 使用公开的 [GitHub Releases](https://github.com/leonthinking/SitRi
 - 应用每天最多自动检查一次，不会每次启动都强制联网。
 - 自动检查发现新版时，只在菜单面板显示「发现 SitRight vX」；不会抢占当前工作。
 - 「设置 → 关于 → 版本更新」可关闭自动检查或手动打开 Sparkle 标准更新窗口。
+- 手动检查未发现更高构建时，会明确显示当前版本、构建号和最近检查时间；当前版本不会把自己识别为更新。
 - SitRight 禁用自动下载与静默安装。只有你在标准更新窗口确认后，才会校验、替换应用并重启。
 - 更新 Feed 固定为 `https://github.com/leonthinking/SitRight/releases/latest/download/appcast.xml`。更新 ZIP 与 appcast 都必须通过 SitRight 专用 EdDSA 密钥验证，签名失败不会降级为不校验。
 
-首个包含更新器的版本仍需要从 GitHub 手动下载安装；只有从该版本开始，后续版本才能应用内更新。首个社区预览候选固定为 `0.2.2 (7)`，对应标签 `v0.2.2`；实际可下载状态与资产以 [GitHub Releases](https://github.com/leonthinking/SitRight/releases) 为准。
+首个包含更新器的版本仍需要从 GitHub 手动下载安装；只有从该版本开始，后续版本才能应用内更新。`0.2.2 (7)` / `v0.2.2` 是引导版本，`0.2.3 (8)` / `v0.2.3` 是首个用于验证真实应用内替换与重启的后续版本；实际可下载状态与资产以 [GitHub Releases](https://github.com/leonthinking/SitRight/releases) 为准。
 
 ### 首次安装限制
 
@@ -157,6 +174,8 @@ SITRIGHT_RELEASE_NOTES_FILE=/已复核/release-notes.md \
 `SITRIGHT_BOOTSTRAP_CONFIRMATION` 与 `SITRIGHT_SPARKLE_KEY_BACKUP_CONFIRMATION` 只在首个没有既有 appcast 的更新器版本需要；前者确认建立更新 Feed，后者确认私钥已经完成离线备份和恢复验证。
 
 发布脚本要求工作区保持干净、当前提交与候选一致、Release Notes 与签名 appcast 中的复核版本一致、`gh auth status` 有效、`origin` 和所有 GitHub 操作都明确指向 `leonthinking/SitRight`、远端 tag 正确、构建号高于 GitHub 实际 `latest` Release 中已签名 appcast 的构建号，并且四项资产完整。它会先把四项资产和 Release Notes 复制到私有临时快照，只验证、上传和回下载比对这份不可变快照；验证内容包含 checksum、DMG/ZIP 内容、App/Widget/Sparkle 签名、精确沙盒 entitlement、打包 App 内的 Sparkle 安全设置、appcast 与 ZIP 的 EdDSA 签名，以及与资产 manifest 一致的官方 Sparkle 工具哈希。脚本先创建不可见的 Draft，只有 Draft 完整通过后才在最后一步转为普通的非 Prerelease Release。公开请求失败时，脚本会查询远端并尝试恢复为 Draft；若网络异常导致无法确认或恢复，则保留本地恢复状态并硬阻断后续发布，要求人工核对远端状态，不能绝对保证远端始终停留在 Draft。它不会创建 GitHub Actions 工作流，不会上传 Apple 或 Sparkle 私钥，也不会合并 PR。
+
+包含“开源与社区”入口的版本发布前，许可、第三方告知、隐私、安全、支持、贡献指南、Issue Forms、Issue 配置和 PR 模板必须已经以精确内容进入远端默认分支 `main`。发布脚本还会验证仓库保持公开、默认分支为 `main`、Issues 与 Private Vulnerability Reporting 均已启用；任一条件不满足都会在创建 Draft Release 前停止。
 
 ## 添加桌面小组件
 

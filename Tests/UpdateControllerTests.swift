@@ -54,9 +54,11 @@ final class UpdateControllerTests: XCTestCase {
 
     @MainActor
     func testControllerTracksUpdateSessionAndGentleReminderStates() {
+        let checkDate = Date(timeIntervalSince1970: 1_700_000_000)
         let controller = UpdateController(
             configuration: configuration(),
-            startsUpdater: false
+            startsUpdater: false,
+            now: { checkDate }
         )
 
         controller.recordFoundUpdate(
@@ -65,6 +67,7 @@ final class UpdateControllerTests: XCTestCase {
         )
         XCTAssertEqual(controller.state, .available(version: "1.3.0"))
         XCTAssertEqual(controller.availableVersion, "1.3.0")
+        XCTAssertEqual(controller.lastCheckDate, checkDate)
 
         controller.recordUserAttention()
         XCTAssertNil(controller.availableVersion)
@@ -87,6 +90,11 @@ final class UpdateControllerTests: XCTestCase {
         controller.recordNoUpdateFound()
         XCTAssertEqual(controller.state, .current)
         XCTAssertEqual(controller.state.statusText, "当前已是最新版")
+        XCTAssertEqual(
+            controller.statusText,
+            "当前已是最新版：1.2.3（45）"
+        )
+        XCTAssertNotNil(controller.lastCheckText)
     }
 
     @MainActor
@@ -119,9 +127,11 @@ final class UpdateControllerTests: XCTestCase {
 
     @MainActor
     func testControllerDistinguishesNoUpdateCancellationAndFailure() {
+        let checkDate = Date(timeIntervalSince1970: 1_700_000_100)
         let controller = UpdateController(
             configuration: configuration(),
-            startsUpdater: false
+            startsUpdater: false,
+            now: { checkDate }
         )
 
         controller.recordUpdateAbort(
@@ -130,7 +140,8 @@ final class UpdateControllerTests: XCTestCase {
                 code: Int(SUError.noUpdateError.rawValue)
             )
         )
-        XCTAssertEqual(controller.state, .current)
+        XCTAssertEqual(controller.state, .noCompatibleUpdate)
+        XCTAssertEqual(controller.lastCheckDate, checkDate)
 
         controller.recordFoundUpdate(
             version: "1.3.0",
@@ -152,6 +163,63 @@ final class UpdateControllerTests: XCTestCase {
             )
         )
         XCTAssertEqual(controller.state, .failed)
+        XCTAssertEqual(controller.lastCheckDate, checkDate)
+    }
+
+    @MainActor
+    func testNoUpdateReasonsDistinguishCurrentFromIncompatibleSystem() {
+        let controller = UpdateController(
+            configuration: configuration(),
+            startsUpdater: false
+        )
+
+        for reason in [
+            SPUNoUpdateFoundReason.onLatestVersion,
+            .onNewerThanLatestVersion,
+        ] {
+            controller.recordNoUpdateFound(
+                error: noUpdateError(reason: reason)
+            )
+            XCTAssertEqual(controller.state, .current)
+            XCTAssertTrue(controller.statusText.contains("1.2.3（45）"))
+        }
+
+        for reason in [
+            SPUNoUpdateFoundReason.systemIsTooOld,
+            .systemIsTooNew,
+            .hardwareDoesNotSupportARM64,
+            .unknown,
+        ] {
+            controller.recordNoUpdateFound(
+                error: noUpdateError(reason: reason)
+            )
+            XCTAssertEqual(controller.state, .noCompatibleUpdate)
+            XCTAssertEqual(
+                controller.statusText,
+                "未发现适用于此 Mac 的更新"
+            )
+        }
+
+        controller.prepareForUserInitiatedUpdatePresentation()
+        XCTAssertEqual(controller.state, .checking)
+    }
+
+    @MainActor
+    func testNoUpdateAbortPreservesTheReasonFromSparklesCallbackSequence() {
+        let controller = UpdateController(
+            configuration: configuration(),
+            startsUpdater: false
+        )
+
+        let incompatibleError = noUpdateError(reason: .systemIsTooOld)
+        controller.recordNoUpdateFound(error: incompatibleError)
+        controller.recordUpdateAbort(incompatibleError)
+        XCTAssertEqual(controller.state, .noCompatibleUpdate)
+
+        let currentError = noUpdateError(reason: .onLatestVersion)
+        controller.recordNoUpdateFound(error: currentError)
+        controller.recordUpdateAbort(currentError)
+        XCTAssertEqual(controller.state, .current)
     }
 
     @MainActor
@@ -183,6 +251,18 @@ final class UpdateControllerTests: XCTestCase {
             currentBuild: "45",
             feedURL: feedURL,
             publicEDKey: publicKey ?? validPublicKey
+        )
+    }
+
+    private func noUpdateError(
+        reason: SPUNoUpdateFoundReason
+    ) -> NSError {
+        NSError(
+            domain: SUSparkleErrorDomain,
+            code: Int(SUError.noUpdateError.rawValue),
+            userInfo: [
+                SPUNoUpdateFoundReasonKey: NSNumber(value: reason.rawValue)
+            ]
         )
     }
 }

@@ -19,6 +19,8 @@ LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/Current/F
 APP_GROUP_IDENTIFIER="973KFG9CL9.com.leon.SitRight"
 EXPECTED_TEAM_IDENTIFIER="${APP_GROUP_IDENTIFIER%%.*}"
 WIDGET_BUNDLE_IDENTIFIER="com.leon.SitRight.SitRightWidgetExtension"
+SITRIGHT_LICENSE_SOURCE="$ROOT_DIR/Sources/Resources/SitRight-License.txt"
+THIRD_PARTY_NOTICES_SOURCE="$ROOT_DIR/Sources/Resources/Third-Party-Notices.txt"
 BUILD_OUTPUT_STAGING_DIR=""
 BUILD_OUTPUT_TARGET_APP=""
 BUILD_OUTPUT_PREVIOUS_APP=""
@@ -226,6 +228,29 @@ $framework_path|Sparkle.framework
 EOF
 }
 
+verify_legal_resources() {
+  local app_path="$1"
+  local label="$2"
+  local source_path
+  local resource_name
+  local bundled_path
+
+  while IFS='|' read -r source_path resource_name; do
+    bundled_path="$app_path/Contents/Resources/$resource_name"
+    if [ ! -f "$source_path" ] || [ ! -f "$bundled_path" ]; then
+      echo "$label is missing required legal resource: $resource_name" >&2
+      return 1
+    fi
+    if ! /usr/bin/cmp -s "$source_path" "$bundled_path"; then
+      echo "$label legal resource differs from source: $resource_name" >&2
+      return 1
+    fi
+  done <<EOF
+$SITRIGHT_LICENSE_SOURCE|SitRight-License.txt
+$THIRD_PARTY_NOTICES_SOURCE|Third-Party-Notices.txt
+EOF
+}
+
 sign_sparkle_components() {
   local app_path="$1"
   local sign_identity="$2"
@@ -291,6 +316,7 @@ verify_installable_app() {
   verify_app_group_entitlement "$widget_path" "$label SitRightWidgetExtension.appex" || return 1
   verify_app_group_team_identifier "$app_path" "$label SitRight.app" || return 1
   verify_app_group_team_identifier "$widget_path" "$label SitRightWidgetExtension.appex" || return 1
+  verify_legal_resources "$app_path" "$label SitRight.app" || return 1
   verify_sparkle_components "$app_path" 1 || return 1
   /usr/bin/codesign --verify --strict "$widget_path" || return 1
   /usr/bin/codesign --verify --strict --deep "$app_path" || return 1
@@ -434,6 +460,7 @@ verify_build_output_candidate() {
   local widget_architectures
   local sparkle_requires_expected_team=0
 
+  verify_legal_resources "$app_path" "Build output SitRight.app" || return 1
   verify_app_group_entitlement "$app_path" "Build output SitRight.app" 1 || return 1
   verify_app_group_entitlement "$widget_path" "Build output SitRightWidgetExtension.appex" 1 || return 1
   if [ -n "$SIGN_IDENTITY" ]; then
@@ -576,6 +603,7 @@ ditto --norsrc "$PRODUCTS_PATH/SitRight.app" "$STAGED_APP_PATH"
 
 xattr -cr "$STAGED_APP_PATH"
 clear_disallowed_xattrs "$STAGED_APP_PATH"
+verify_legal_resources "$STAGED_APP_PATH" "SitRight.app"
 
 SIGN_IDENTITY="${SITRIGHT_CODE_SIGN_IDENTITY:-}"
 if [ -z "$SIGN_IDENTITY" ]; then
@@ -624,6 +652,7 @@ if [ "$APP_ARCHITECTURES" != "$WIDGET_ARCHITECTURES" ]; then
 fi
 
 publish_built_app "$STAGED_APP_PATH" "$APP_PATH"
+verify_legal_resources "$APP_PATH" "Published SitRight.app"
 
 unregister_transient_app "$PRODUCTS_PATH/SitRight.app"
 

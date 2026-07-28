@@ -465,6 +465,79 @@ final class PackagingContractTests: XCTestCase {
         XCTAssertTrue(publishScript.contains("GH_REPOSITORY=\"leonthinking/SitRight\""))
         XCTAssertTrue(publishScript.contains("--repo \"$GH_REPOSITORY\""))
         XCTAssertTrue(publishScript.contains("validate_origin_url"))
+        XCTAssertTrue(publishScript.contains("verify_remote_main_commit"))
+        XCTAssertTrue(
+            publishScript.contains(
+                "remote main must resolve uniquely to the verified release commit"
+            )
+        )
+        XCTAssertEqual(
+            publishScript.components(
+                separatedBy: "verify_remote_main_commit \\"
+            ).count - 1,
+            3
+        )
+        XCTAssertTrue(publishScript.contains("verify_remote_community_contract"))
+        XCTAssertTrue(publishScript.contains("verify_remote_repository_contract"))
+        XCTAssertTrue(
+            publishScript.contains(
+                "/repos/$GH_REPOSITORY/contents/$required_path?ref=main"
+            )
+        )
+        XCTAssertTrue(publishScript.contains("--jq '.sha'"))
+        XCTAssertTrue(
+            publishScript.contains(
+                "git -C \"$ROOT_DIR\" rev-parse \"HEAD:$required_path\""
+            )
+        )
+        XCTAssertTrue(
+            publishScript.contains(
+                "merge $required_path into the remote main branch before publishing community links"
+            )
+        )
+        XCTAssertTrue(
+            publishScript.contains(
+                "remote main must contain the exact verified $required_path before publishing community links"
+            )
+        )
+        for requiredPath in [
+            "PRIVACY.md",
+            "SECURITY.md",
+            "SUPPORT.md",
+            "CONTRIBUTING.md",
+            "Sources/Resources/SitRight-License.txt",
+            "Sources/Resources/Third-Party-Notices.txt",
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            ".github/ISSUE_TEMPLATE/config.yml",
+            ".github/ISSUE_TEMPLATE/support_request.yml",
+        ] {
+            XCTAssertTrue(publishScript.contains(requiredPath))
+        }
+        XCTAssertTrue(publishScript.contains("\"private\""))
+        XCTAssertTrue(publishScript.contains("\"visibility\""))
+        XCTAssertTrue(publishScript.contains("\"default_branch\""))
+        XCTAssertTrue(publishScript.contains("\"has_issues\""))
+        XCTAssertTrue(
+            publishScript.contains(
+                "/repos/$GH_REPOSITORY/private-vulnerability-reporting"
+            )
+        )
+        XCTAssertTrue(publishScript.contains("private_reporting.get(\"enabled\") is True"))
+        XCTAssertTrue(
+            publishScript.contains(
+                "Private Vulnerability Reporting must be enabled"
+            )
+        )
+        XCTAssertTrue(
+            publishScript.contains(
+                "$ROOT_DIR/Sources/Resources/SitRight-License.txt|SitRight-License.txt"
+            )
+        )
+        XCTAssertTrue(
+            publishScript.contains(
+                "$ROOT_DIR/Sources/Resources/Third-Party-Notices.txt|Third-Party-Notices.txt"
+            )
+        )
         XCTAssertTrue(publishScript.contains("SITRIGHT_RELEASE_CONFIRMATION"))
         XCTAssertTrue(
             publishScript.contains(
@@ -542,6 +615,12 @@ final class PackagingContractTests: XCTestCase {
         let draftCreation = try XCTUnwrap(
             publishScript.range(of: "gh release create \"$tag\"")
         )
+        let communityGate = try XCTUnwrap(
+            publishScript.range(of: "verify_remote_community_contract\n")
+        )
+        let repositoryGate = try XCTUnwrap(
+            publishScript.range(of: "verify_remote_repository_contract\n")
+        )
         let immutableVerification = try XCTUnwrap(
             publishScript.range(of: "verify_prepared_assets \\")
         )
@@ -581,6 +660,8 @@ final class PackagingContractTests: XCTestCase {
             immutableVerification.lowerBound,
             draftCreation.lowerBound
         )
+        XCTAssertLessThan(communityGate.lowerBound, draftCreation.lowerBound)
+        XCTAssertLessThan(repositoryGate.lowerBound, draftCreation.lowerBound)
         XCTAssertLessThan(draftCreation.lowerBound, draftVerification.lowerBound)
         XCTAssertLessThan(
             draftVerification.lowerBound,
@@ -601,6 +682,160 @@ final class PackagingContractTests: XCTestCase {
             finalVerification.lowerBound,
             clearPublicationState.lowerBound
         )
+    }
+
+    func testRemoteCommunityContractRequiresExactMainBlobs() throws {
+        let publishScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "Scripts/publish_update_release.sh"
+            ),
+            encoding: .utf8
+        )
+        let runner = """
+        set -euo pipefail
+        MODE="$1"
+        GH_REPOSITORY="leonthinking/SitRight"
+        ROOT_DIR="/fixture"
+        gh() {
+          if [ "$MODE" = "missing" ] && [[ "$*" == *"bug_report.yml"* ]]; then
+            return 1
+          fi
+          if [ "$MODE" = "mismatch" ] && [[ "$*" == *"feature_request.yml"* ]]; then
+            echo "different-blob-sha"
+          else
+            echo "verified-blob-sha"
+          fi
+        }
+        git() {
+          echo "verified-blob-sha"
+        }
+        \(try function(named: "verify_remote_community_contract", in: publishScript))
+        verify_remote_community_contract
+        """
+
+        XCTAssertEqual(
+            try bashExitStatus(script: runner, arguments: ["matching"]),
+            0
+        )
+        XCTAssertNotEqual(
+            try bashExitStatus(script: runner, arguments: ["missing"]),
+            0
+        )
+        XCTAssertNotEqual(
+            try bashExitStatus(script: runner, arguments: ["mismatch"]),
+            0
+        )
+    }
+
+    func testRemoteRepositoryContractRequiresPublicMainIssuesAndPrivateReporting() throws {
+        let publishScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "Scripts/publish_update_release.sh"
+            ),
+            encoding: .utf8
+        )
+        let runner = """
+        set -euo pipefail
+        MODE="$1"
+        GH_REPOSITORY="leonthinking/SitRight"
+        gh() {
+          if [[ "$*" == *"private-vulnerability-reporting"* ]]; then
+            if [ "$MODE" = "reporting-unavailable" ]; then
+              return 1
+            fi
+            if [ "$MODE" = "reporting-disabled" ]; then
+              echo '{"enabled":false}'
+            else
+              echo '{"enabled":true}'
+            fi
+            return
+          fi
+          case "$MODE" in
+            matching)
+              echo '{"private":false,"visibility":"public","default_branch":"main","has_issues":true}'
+              ;;
+            private)
+              echo '{"private":true,"visibility":"private","default_branch":"main","has_issues":true}'
+              ;;
+            wrong-branch)
+              echo '{"private":false,"visibility":"public","default_branch":"develop","has_issues":true}'
+              ;;
+            no-issues)
+              echo '{"private":false,"visibility":"public","default_branch":"main","has_issues":false}'
+              ;;
+            reporting-disabled | reporting-unavailable)
+              echo '{"private":false,"visibility":"public","default_branch":"main","has_issues":true}'
+              ;;
+          esac
+        }
+        \(try function(named: "verify_remote_repository_contract", in: publishScript))
+        verify_remote_repository_contract
+        """
+
+        XCTAssertEqual(
+            try bashExitStatus(script: runner, arguments: ["matching"]),
+            0
+        )
+        for mode in [
+            "private",
+            "wrong-branch",
+            "no-issues",
+            "reporting-disabled",
+            "reporting-unavailable",
+        ] {
+            XCTAssertNotEqual(
+                try bashExitStatus(script: runner, arguments: [mode]),
+                0
+            )
+        }
+    }
+
+    func testRemoteMainContractRejectsMismatchAmbiguityAndLookupFailure() throws {
+        let publishScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "Scripts/publish_update_release.sh"
+            ),
+            encoding: .utf8
+        )
+        let runner = """
+        set -euo pipefail
+        MODE="$1"
+        ROOT_DIR="/fixture"
+        EXPECTED_COMMIT="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        git() {
+          case "$MODE" in
+            matching)
+              echo "$EXPECTED_COMMIT refs/heads/main"
+              ;;
+            mismatch)
+              echo "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb refs/heads/main"
+              ;;
+            ambiguous)
+              echo "$EXPECTED_COMMIT refs/heads/main"
+              echo "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb refs/heads/main"
+              ;;
+            missing)
+              return 0
+              ;;
+            failure)
+              return 1
+              ;;
+          esac
+        }
+        \(try function(named: "verify_remote_main_commit", in: publishScript))
+        verify_remote_main_commit "$EXPECTED_COMMIT" "https://github.com/leonthinking/SitRight.git"
+        """
+
+        XCTAssertEqual(
+            try bashExitStatus(script: runner, arguments: ["matching"]),
+            0
+        )
+        for mode in ["mismatch", "ambiguous", "missing", "failure"] {
+            XCTAssertNotEqual(
+                try bashExitStatus(script: runner, arguments: [mode]),
+                0
+            )
+        }
     }
 
     func testUpdateZIPValidationAcceptsOnlySitRightAppHierarchy() throws {

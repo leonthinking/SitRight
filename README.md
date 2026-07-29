@@ -128,7 +128,7 @@ SitRight 使用公开的 [GitHub Releases](https://github.com/leonthinking/SitRi
 - SitRight 禁用自动下载与静默安装。只有你在标准更新窗口确认后，才会校验、替换应用并重启。
 - 更新 Feed 固定为 `https://github.com/leonthinking/SitRight/releases/latest/download/appcast.xml`。更新 ZIP 与 appcast 都必须通过 SitRight 专用 EdDSA 密钥验证，签名失败不会降级为不校验。
 
-首个包含更新器的版本仍需要从 GitHub 手动下载安装；只有从该版本开始，后续版本才能应用内更新。`0.2.2 (7)` / `v0.2.2` 是引导版本，`0.2.3 (8)` / `v0.2.3` 是首个用于验证真实应用内替换与重启的后续版本；实际可下载状态与资产以 [GitHub Releases](https://github.com/leonthinking/SitRight/releases) 为准。
+首个包含更新器的版本仍需要从 GitHub 手动下载安装；只有从该版本开始，后续版本才能应用内更新。`0.2.2 (7)` / `v0.2.2` 是引导版本，`0.2.3 (8)` / `v0.2.3` 首次验证了真实应用内替换与重启；`0.2.4 (9)` / `v0.2.4` 延续同一更新链路。实际可下载状态与资产以 [GitHub Releases](https://github.com/leonthinking/SitRight/releases) 为准。
 
 ### 首次安装限制
 

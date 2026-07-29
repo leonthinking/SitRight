@@ -42,7 +42,7 @@ SitRight 把提醒节奏和活动记录分开处理，避免主动增加的一�
 swift run
 ```
 
-首次启动后，macOS 可能会请求通知权限。应用是菜单栏常驻形态，不会显示 Dock 图标。
+首次启动后，macOS 可能会请求通知权限。应用平时是菜单栏常驻形态，不显示 Dock 图标；打开标准设置窗口时会临时显示 Dock 图标和应用菜单，以支持 `⌘H` 等原生 macOS 命令。隐藏设置窗口后，仍可通过 `⌘Tab` 切回并恢复原窗口；关闭最后一个标准窗口后才会返回纯菜单栏模式。
 
 `swift run` 使用开发环境的 Application Support 目录；该数据不保证自动迁移到沙箱化的 `.app`。打包版本的 App 与 Widget 以 App Group 作为唯一共享数据源。
 
@@ -128,7 +128,7 @@ SitRight 使用公开的 [GitHub Releases](https://github.com/leonthinking/SitRi
 - SitRight 禁用自动下载与静默安装。只有你在标准更新窗口确认后，才会校验、替换应用并重启。
 - 更新 Feed 固定为 `https://github.com/leonthinking/SitRight/releases/latest/download/appcast.xml`。更新 ZIP 与 appcast 都必须通过 SitRight 专用 EdDSA 密钥验证，签名失败不会降级为不校验。
 
-首个包含更新器的版本仍需要从 GitHub 手动下载安装；只有从该版本开始，后续版本才能应用内更新。`0.2.2 (7)` / `v0.2.2` 是引导版本，`0.2.3 (8)` / `v0.2.3` 是首个用于验证真实应用内替换与重启的后续版本；实际可下载状态与资产以 [GitHub Releases](https://github.com/leonthinking/SitRight/releases) 为准。
+首个包含更新器的版本仍需要从 GitHub 手动下载安装；只有从该版本开始，后续版本才能应用内更新。`0.2.2 (7)` / `v0.2.2` 是引导版本，`0.2.3 (8)` / `v0.2.3` 首次验证了真实应用内替换与重启；`0.2.4 (9)` / `v0.2.4` 延续同一更新链路。实际可下载状态与资产以 [GitHub Releases](https://github.com/leonthinking/SitRight/releases) 为准。
 
 ### 首次安装限制
 

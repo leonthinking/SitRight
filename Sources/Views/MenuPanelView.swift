@@ -242,6 +242,8 @@ struct MenuPanelLayoutSignature: Equatable {
 
 struct MenuPanelView: View {
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.settingsWindowActivationController)
+    private var settingsWindowActivationController
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var statsStore: StatsStore
     @EnvironmentObject private var updateController: UpdateController
@@ -437,8 +439,11 @@ struct MenuPanelView: View {
             requestedSettingsSectionRawValue = route.requestedSection?.rawValue ?? ""
         }
         onRequestClose()
+        settingsWindowActivationController?.prepareForSettingsPresentation()
         openSettings()
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        if settingsWindowActivationController == nil {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
     }
 
     private func headerColor(for presentation: MenuPanelPresentation) -> Color {

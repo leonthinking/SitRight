@@ -242,6 +242,26 @@ final class UpdateControllerTests: XCTestCase {
         XCTAssertTrue(controller.automaticallyChecksForUpdates)
     }
 
+    @MainActor
+    func testSparkleModalAlertLifecycleForwardsActivationLease() {
+        let controller = UpdateController(
+            configuration: configuration(),
+            startsUpdater: false
+        )
+        var events: [String] = []
+        controller.onModalAlertWillPresent = {
+            events.append("begin")
+        }
+        controller.onModalAlertDidFinish = {
+            events.append("end")
+        }
+
+        controller.standardUserDriverWillShowModalAlert()
+        controller.standardUserDriverDidShowModalAlert()
+
+        XCTAssertEqual(events, ["begin", "end"])
+    }
+
     private func configuration(
         feedURL: URL? = UpdateConfiguration.expectedFeedURL,
         publicKey: String? = nil

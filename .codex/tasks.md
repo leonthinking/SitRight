@@ -26,15 +26,33 @@ No tracked tasks yet.
 
 ## In Progress
 
-### TASK-20260728-community-quality-release
-
-- Status: In Progress
-- Goal: Complete SitRight's public community, privacy, security, update-status, login-item recovery, and 0.2.3 community-preview release contract without rewriting existing public history.
-- Impacted areas: About settings, ServiceManagement and Sparkle presentation, community health files, public-document privacy, release scripts, personal release Skill, tests, README, and GitHub repository settings.
-- Verification: In progress. Publication remains blocked until the local `gh` environment is authenticated and the exact candidate passes isolated tests, signed packaging, two adversarial reviews, merge-commit rebuilding, and two-version update acceptance.
-- Handoff notes: Preserve App Group and stored data formats. Do not publish `Marketing/`, build outputs, personal runtime evidence, credentials, or a fifth Release asset.
+No tracked tasks yet.
 
 ## Done
+
+### TASK-20260729-settings-window-hide-switcher
+
+- Status: Done
+- Goal: Preserve standard macOS Hide semantics so Command-H keeps SitRight available in Command-Tab while closing the last standard window returns it to menu-bar-only mode.
+- Impacted areas: Settings activation lifecycle, status-item reopening, App/Sparkle window close ordering, focused AppKit tests, README, and project context.
+- Verification: Focused activation/update tests passed 23/23; `swift test --disable-sandbox` passed 231/231; the signed packaged App/Widget build completed with `** BUILD SUCCEEDED **` and verified TeamIdentifier `973KFG9CL9` plus the required App Group; `git diff --check` passed. Two independent adversarial reviews found and drove fixes for stale asynchronous focus, repeated-registration focus stealing, hidden multiwindow tracking, Sparkle window handoff, and modal alerts that finish without `willClose`; every confirmed issue received regression coverage and final re-review found no remaining P0-P3.
+- Handoff notes: Command-H keeps the activation policy regular so the hidden Settings window remains recoverable through Command-Tab or the status item. Closing the last standard Settings/update/modal window restores accessory mode; reminder and status panels do not retain a Dock presence. The signed candidate was built without installation, but desktop automation could not attach to the LSUIElement app before a standard window was opened, so the final visible Command-H → Command-Tab interaction remains a short user smoke check. No settings, reminder, App Group, Widget, update, or version contract changed.
+
+### TASK-20260729-settings-window-menu-activation
+
+- Status: Done
+- Goal: Make General and About fit the default Settings window, support native vertical-only resizing, and expose the standard macOS application menu and Command-H while Settings is visible.
+- Impacted areas: Settings sizing/restoration, App activation policy, status-menu-to-Settings presentation, native application commands, README, project context, and focused AppKit tests.
+- Verification: The focused 41-test presentation/activation run and full 221-test Swift suite passed. The signed packaged App/Widget build completed and verified the required TeamIdentifier and App Group. Runtime acceptance confirmed a fixed 520 pt width, vertical resizing with visible-screen clamping, the standard application/Edit/View/Window/Help menus and system Hide command, and continued status-item process lifetime. The original hide policy incorrectly removed the app from Command-Tab and is superseded by TASK-20260729-settings-window-hide-switcher. Two independent adversarial reviews found and drove fixes for small-screen restoration, screen changes, legacy-size classification, minimum-height recovery, Sparkle-window close ordering, and bounded activation-policy retry; all confirmed findings received regression coverage and final re-review.
+- Handoff notes: The resting app remains LSUIElement/accessory with no Dock icon. Settings targets a 520×900 content size, clamps to the current screen, preserves non-legacy user heights, and keeps native scrolling below the full-content height. The candidate was run without replacing the installed app; stored settings, activity history, App Group data, Widget kinds, and version were not changed.
+
+### TASK-20260728-community-quality-release
+
+- Status: Done
+- Goal: Complete SitRight's public community, privacy, security, update-status, login-item recovery, and 0.2.3 community-preview release contract without rewriting existing public history.
+- Impacted areas: About settings, ServiceManagement and Sparkle presentation, community health files, public-document privacy, release scripts, personal release Skill, tests, README, and GitHub repository settings.
+- Verification: The exact merged main candidate passed the isolated Swift suite, signed App/Widget/DMG/update-asset verification, public Feed and asset comparison, and a real current-account in-app update from 0.2.2 (7) to 0.2.3 (8). Repository community/security settings and two independent final reviews passed without a rollback condition.
+- Handoff notes: The public build remains a GitHub community preview rather than a Developer ID notarized release. Preserve App Group and stored data formats, and keep personal runtime evidence out of tracked documentation.
 
 ### TASK-20260725-proactive-activity-cadence
 
@@ -50,7 +68,7 @@ No tracked tasks yet.
 - Goal: Rename the General settings pane to 通用, show the normal settings content without default scrolling, and allow the standard Settings window to resize in both dimensions.
 - Impacted areas: Settings Scene sizing/restoration, Settings panel layout and labels, route compatibility, accessibility fallback scrolling, and focused presentation tests.
 - Verification: Production Settings hosting and presentation regressions cover the `520×800` default, `460×520` minimum, flexible resizing, visible `通用` title, legacy `schedule` routing, one-time Work Schedule focus, scrolling fallback, and shared tab-window sizing. The combined community-release verification runs the full Swift suite and signed packaged build.
-- Handoff notes: The `general` and legacy `schedule` raw values, existing AppStorage keys, one-time Work Schedule scroll/focus route, immediate persistence, and accessibility scrolling remain compatible.
+- Handoff notes: This historical sizing policy was superseded by TASK-20260729-settings-window-menu-activation. The `general` and legacy `schedule` raw values, existing AppStorage keys, one-time Work Schedule scroll/focus route, immediate persistence, and accessibility scrolling remain compatible.
 
 ### TASK-20260723-verified-dmg-packaging
 

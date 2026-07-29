@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 final class StatusBarController: NSObject, NSPopoverDelegate {
     private let container: AppContainer
+    private let settingsWindowActivationController:
+        SettingsWindowActivationController
     private let statusItem: NSStatusItem
     private let menuPanelRefreshController: MenuPanelRefreshController
     private let popover = NSPopover()
@@ -17,8 +19,13 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var lastAccessibilityValue: String?
     private var popoverLayoutMeasurementState: PopoverLayoutMeasurementState?
 
-    init(container: AppContainer) {
+    init(
+        container: AppContainer,
+        settingsWindowActivationController: SettingsWindowActivationController
+    ) {
         self.container = container
+        self.settingsWindowActivationController =
+            settingsWindowActivationController
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.menuPanelRefreshController = MenuPanelRefreshController()
         super.init()
@@ -40,6 +47,10 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             .environmentObject(container.settingsStore)
             .environmentObject(container.statsStore)
             .environmentObject(container.updateController)
+            .environment(
+                \.settingsWindowActivationController,
+                settingsWindowActivationController
+            )
 
         let hostingController = NSHostingController(rootView: AnyView(rootView))
         hostingController.sizingOptions = StatusBarPopoverSizingPolicy.hostingSizingOptions

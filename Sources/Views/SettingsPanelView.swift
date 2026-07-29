@@ -25,25 +25,68 @@ enum SettingsPanePresentation {
 }
 
 enum SettingsWindowSizingPolicy {
-    static let defaultContentSize = NSSize(width: 520, height: 800)
-    static let minimumContentSize = NSSize(width: 460, height: 520)
-    static let legacySizeMigrationDefaultsKey =
+    static let fixedContentWidth: CGFloat = 520
+    static let defaultContentSize = NSSize(width: fixedContentWidth, height: 900)
+    static let minimumContentSize = NSSize(width: fixedContentWidth, height: 520)
+    static let priorDefaultContentSize = NSSize(width: 520, height: 800)
+    static let preV2DefaultContentSize = NSSize(width: 460, height: 380)
+    static let v2MigrationDefaultsKey =
         "sitright.settings.windowSizingV2Migrated"
+    static let migrationDefaultsKey =
+        "sitright.settings.windowSizingV3Migrated"
 
     static func migrationTarget(
         currentContentSize: NSSize,
         maximumContentSize: NSSize
     ) -> NSSize {
-        NSSize(
-            width: min(
-                max(currentContentSize.width, defaultContentSize.width),
-                maximumContentSize.width
-            ),
-            height: min(
-                max(currentContentSize.height, defaultContentSize.height),
-                maximumContentSize.height
-            )
+        normalizedTarget(
+            currentContentSize: currentContentSize,
+            maximumContentSize: maximumContentSize,
+            promotesLegacyDefaultHeight: true
         )
+    }
+
+    static func restorationTarget(
+        currentContentSize: NSSize,
+        maximumContentSize: NSSize
+    ) -> NSSize {
+        normalizedTarget(
+            currentContentSize: currentContentSize,
+            maximumContentSize: maximumContentSize,
+            promotesLegacyDefaultHeight: false
+        )
+    }
+
+    private static func normalizedTarget(
+        currentContentSize: NSSize,
+        maximumContentSize: NSSize,
+        promotesLegacyDefaultHeight: Bool
+    ) -> NSSize {
+        let isKnownLegacyDefaultHeight =
+            approximatelyEqual(
+                currentContentSize.height,
+                priorDefaultContentSize.height
+            ) ||
+            approximatelyEqual(
+                currentContentSize.height,
+                preV2DefaultContentSize.height
+            )
+        let requestedHeight =
+            promotesLegacyDefaultHeight && isKnownLegacyDefaultHeight
+            ? defaultContentSize.height
+            : max(currentContentSize.height, minimumContentSize.height)
+
+        return NSSize(
+            width: min(fixedContentWidth, maximumContentSize.width),
+            height: min(requestedHeight, maximumContentSize.height)
+        )
+    }
+
+    private static func approximatelyEqual(
+        _ lhs: CGFloat,
+        _ rhs: CGFloat
+    ) -> Bool {
+        abs(lhs - rhs) <= 1
     }
 }
 
@@ -52,20 +95,36 @@ enum SettingsWindowConfigurator {
     @discardableResult
     static func configure(
         _ window: NSWindow,
-        shouldMigrateLegacySize: Bool
+        shouldMigrateLegacySize: Bool,
+        maximumContentSize providedMaximumContentSize: NSSize? = nil
     ) -> Bool {
         window.contentMinSize = SettingsWindowSizingPolicy.minimumContentSize
-        guard shouldMigrateLegacySize else { return false }
+        window.contentMaxSize = NSSize(
+            width: SettingsWindowSizingPolicy.fixedContentWidth,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        window.styleMask.insert(.resizable)
 
         let screen = window.screen ?? NSScreen.main
-        let maximumContentSize = screen.map {
-            window.contentRect(forFrameRect: $0.visibleFrame).size
-        } ?? SettingsWindowSizingPolicy.defaultContentSize
-        let targetSize = SettingsWindowSizingPolicy.migrationTarget(
-            currentContentSize: window.contentLayoutRect.size,
-            maximumContentSize: maximumContentSize
-        )
-        window.setContentSize(targetSize)
+        let maximumContentSize =
+            providedMaximumContentSize ??
+            screen.map {
+                window.contentRect(forFrameRect: $0.visibleFrame).size
+            } ??
+            SettingsWindowSizingPolicy.defaultContentSize
+        let currentContentSize = window.contentLayoutRect.size
+        let targetSize = shouldMigrateLegacySize
+            ? SettingsWindowSizingPolicy.migrationTarget(
+                currentContentSize: currentContentSize,
+                maximumContentSize: maximumContentSize
+            )
+            : SettingsWindowSizingPolicy.restorationTarget(
+                currentContentSize: currentContentSize,
+                maximumContentSize: maximumContentSize
+            )
+        if currentContentSize != targetSize {
+            window.setContentSize(targetSize)
+        }
 
         if let screen {
             let constrainedFrame = window.constrainFrameRect(
@@ -74,27 +133,72 @@ enum SettingsWindowConfigurator {
             )
             window.setFrame(constrainedFrame, display: false)
         }
-        return true
+        return shouldMigrateLegacySize
     }
 }
 
 private final class SettingsWindowObserverView: NSView {
     var onWindowAvailable: ((NSWindow) -> Void)?
     var didMigrateLegacySize = false
+    private weak var observedWindow: NSWindow?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        notifyIfAttached()
+        observeWindowIfNeeded()
+        notifyIfAttached(scheduleFollowUp: true)
     }
 
-    func notifyIfAttached() {
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    func notifyIfAttached(scheduleFollowUp: Bool = false) {
         guard let window else { return }
         onWindowAvailable?(window)
+
+        guard scheduleFollowUp else { return }
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self, let window, self.window === window else { return }
+            self.onWindowAvailable?(window)
+        }
+    }
+
+    private func observeWindowIfNeeded() {
+        guard observedWindow !== window else { return }
+        for notificationName in [
+            NSWindow.didResizeNotification,
+            NSWindow.didChangeScreenNotification
+        ] {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: notificationName,
+                object: observedWindow
+            )
+        }
+        observedWindow = window
+        guard let window else { return }
+        for notificationName in [
+            NSWindow.didResizeNotification,
+            NSWindow.didChangeScreenNotification
+        ] {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowGeometryDidChange(_:)),
+                name: notificationName,
+                object: window
+            )
+        }
+    }
+
+    @objc
+    private func windowGeometryDidChange(_ notification: Notification) {
+        notifyIfAttached()
     }
 }
 
 private struct SettingsWindowConfigurationView: NSViewRepresentable {
     @Binding var hasCompletedLegacySizeMigration: Bool
+    let activationController: SettingsWindowActivationController?
 
     func makeNSView(context: Context) -> SettingsWindowObserverView {
         let view = SettingsWindowObserverView()
@@ -117,6 +221,7 @@ private struct SettingsWindowConfigurationView: NSViewRepresentable {
                 window,
                 shouldMigrateLegacySize: shouldMigrate
             )
+            activationController?.registerSettingsWindow(window)
             guard didMigrate else { return }
 
             view.didMigrateLegacySize = true
@@ -124,7 +229,7 @@ private struct SettingsWindowConfigurationView: NSViewRepresentable {
                 migrationBinding.wrappedValue = true
             }
         }
-        view.notifyIfAttached()
+        view.notifyIfAttached(scheduleFollowUp: true)
     }
 }
 
@@ -217,6 +322,8 @@ enum TimePickerOptions {
 }
 
 struct SettingsPanelView: View {
+    @Environment(\.settingsWindowActivationController)
+    private var settingsWindowActivationController
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var notificationManager: NotificationManager
     @EnvironmentObject private var launchAtLoginController: LaunchAtLoginController
@@ -226,7 +333,7 @@ struct SettingsPanelView: View {
     private var selectedPane: SettingsPane = .general
     @AppStorage(SettingsSelection.requestedSectionDefaultsKey)
     private var requestedSectionRawValue = ""
-    @AppStorage(SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey)
+    @AppStorage(SettingsWindowSizingPolicy.migrationDefaultsKey)
     private var hasCompletedLegacySizeMigration = false
     @State private var intervalSelectionOverride: ReminderIntervalChoice?
     @State private var presentedLegalNotice: LegalNotice?
@@ -263,9 +370,9 @@ struct SettingsPanelView: View {
                 .tag(SettingsPane.about)
         }
         .frame(
-            minWidth: SettingsWindowSizingPolicy.minimumContentSize.width,
-            idealWidth: SettingsWindowSizingPolicy.defaultContentSize.width,
-            maxWidth: .infinity,
+            minWidth: SettingsWindowSizingPolicy.fixedContentWidth,
+            idealWidth: SettingsWindowSizingPolicy.fixedContentWidth,
+            maxWidth: SettingsWindowSizingPolicy.fixedContentWidth,
             minHeight: SettingsWindowSizingPolicy.minimumContentSize.height,
             idealHeight: SettingsWindowSizingPolicy.defaultContentSize.height,
             maxHeight: .infinity
@@ -273,7 +380,8 @@ struct SettingsPanelView: View {
         .background {
             SettingsWindowConfigurationView(
                 hasCompletedLegacySizeMigration:
-                    $hasCompletedLegacySizeMigration
+                    $hasCompletedLegacySizeMigration,
+                activationController: settingsWindowActivationController
             )
             .frame(width: 1, height: 1)
             .allowsHitTesting(false)

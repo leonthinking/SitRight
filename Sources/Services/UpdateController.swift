@@ -122,6 +122,9 @@ final class UpdateController: NSObject, ObservableObject {
     @Published private(set) var automaticallyChecksForUpdates = true
     @Published private(set) var lastCheckDate: Date?
 
+    var onModalAlertWillPresent: (() -> Void)?
+    var onModalAlertDidFinish: (() -> Void)?
+
     private var standardUpdaterController: SPUStandardUpdaterController?
     private var cancellables = Set<AnyCancellable>()
     private let now: () -> Date
@@ -369,6 +372,14 @@ extension UpdateController: @preconcurrency SPUStandardUserDriverDelegate {
         forUpdate update: SUAppcastItem
     ) {
         recordUserAttention()
+    }
+
+    func standardUserDriverWillShowModalAlert() {
+        onModalAlertWillPresent?()
+    }
+
+    func standardUserDriverDidShowModalAlert() {
+        onModalAlertDidFinish?()
     }
 
     func standardUserDriverWillFinishUpdateSession() {

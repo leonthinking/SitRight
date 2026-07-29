@@ -39,7 +39,8 @@ The app is intentionally lightweight and local-first. There is no backend servic
 
 `Sources/SitRightApp.swift` is the app entry point.
 
-- `AppDelegate` sets activation policy to `.accessory` so the app has no Dock icon, creates `AppContainer`, and retains `StatusBarController`.
+- `AppDelegate` starts with activation policy `.accessory` so the resting app has no Dock icon, creates `AppContainer`, and retains `StatusBarController`.
+- `SettingsWindowActivationController` temporarily promotes the app to `.regular` while a standard Settings window is presented, exposing the native application menu and `Command-H`. Hiding keeps `.regular` so macOS can restore the Settings window through `Command-Tab`; closing the last standard window restores `.accessory` while the status item and reminder engine keep running.
 - After `applicationDidFinishLaunching`, `AppDelegate` starts the single `UpdateController`; Sparkle is not started during container construction.
 - `StatusBarController` owns a native `NSStatusItem` and a persistent `NSPopover` that hosts the existing SwiftUI menu panel.
 - The popover is pre-sized, does not animate when shown, and reuses its hosting controller between clicks so opening the menu does not rebuild the panel.
@@ -57,6 +58,12 @@ The app is intentionally lightweight and local-first. There is no backend servic
 - `ReminderEngine`
 
 `ReminderEngine.start()` is called during container initialization.
+
+The Settings scene uses a fixed 520 pt content width with native vertical
+resizing. Its 900 pt default height is raised once from known legacy defaults,
+clamped to the visible screen, and otherwise preserves a user-adjusted height.
+Forms continue to scroll when the window is shortened or accessibility and
+dynamic content require more room.
 
 ## Community Update Flow
 

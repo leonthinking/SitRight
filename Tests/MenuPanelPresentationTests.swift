@@ -54,16 +54,16 @@ final class MenuPanelPresentationTests: XCTestCase {
         XCTAssertEqual(SettingsPanePresentation.title(for: .about), "关于")
     }
 
-    func testSettingsWindowSizingProvidesRoomAndAllowsExpansion() {
+    func testSettingsWindowSizingProvidesRoomAndVerticalExpansion() {
         XCTAssertEqual(
             SettingsWindowSizingPolicy.defaultContentSize,
-            NSSize(width: 520, height: 800)
+            NSSize(width: 520, height: 900)
         )
         XCTAssertEqual(
             SettingsWindowSizingPolicy.minimumContentSize,
-            NSSize(width: 460, height: 520)
+            NSSize(width: 520, height: 520)
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             SettingsWindowSizingPolicy.defaultContentSize.width,
             SettingsWindowSizingPolicy.minimumContentSize.width
         )
@@ -87,10 +87,47 @@ final class MenuPanelPresentationTests: XCTestCase {
         )
         XCTAssertEqual(
             SettingsWindowSizingPolicy.migrationTarget(
-                currentContentSize: NSSize(width: 720, height: 900),
+                currentContentSize: NSSize(width: 600, height: 800),
                 maximumContentSize: NSSize(width: 1_440, height: 1_000)
             ),
-            NSSize(width: 720, height: 900)
+            NSSize(width: 520, height: 900)
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.migrationTarget(
+                currentContentSize: NSSize(width: 600, height: 640),
+                maximumContentSize: NSSize(width: 1_440, height: 1_000)
+            ),
+            NSSize(width: 520, height: 640),
+            "迁移标志缺失也不应覆盖用户主动调整的高度"
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.restorationTarget(
+                currentContentSize: NSSize(width: 520, height: 380),
+                maximumContentSize: NSSize(width: 1_440, height: 1_000)
+            ),
+            NSSize(width: 520, height: 520)
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.restorationTarget(
+                currentContentSize: NSSize(width: 520, height: 900),
+                maximumContentSize: NSSize(width: 1_440, height: 700)
+            ),
+            NSSize(width: 520, height: 700)
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.restorationTarget(
+                currentContentSize: NSSize(width: 520, height: 1_000),
+                maximumContentSize: NSSize(width: 1_440, height: 1_200)
+            ),
+            NSSize(width: 520, height: 1_000)
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.v2MigrationDefaultsKey,
+            "sitright.settings.windowSizingV2Migrated"
+        )
+        XCTAssertEqual(
+            SettingsWindowSizingPolicy.migrationDefaultsKey,
+            "sitright.settings.windowSizingV3Migrated"
         )
     }
 
@@ -120,6 +157,14 @@ final class MenuPanelPresentationTests: XCTestCase {
             appSource.contains(".windowResizability(.contentMinSize)")
         )
         XCTAssertFalse(settingsSource.contains(".frame(width: 460, height: 380)"))
+        XCTAssertTrue(
+            settingsSource.contains(
+                "maxWidth: SettingsWindowSizingPolicy.fixedContentWidth"
+            )
+        )
+        XCTAssertTrue(
+            settingsSource.contains("NSWindow.didChangeScreenNotification")
+        )
         XCTAssertTrue(settingsSource.contains(".frame(width: 1, height: 1)"))
         XCTAssertFalse(settingsSource.contains(".frame(width: 0, height: 0)"))
     }
@@ -131,7 +176,7 @@ final class MenuPanelPresentationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(
             true,
-            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+            forKey: SettingsWindowSizingPolicy.migrationDefaultsKey
         )
 
         let settingsStore = SettingsStore(defaults: defaults)
@@ -160,11 +205,14 @@ final class MenuPanelPresentationTests: XCTestCase {
         )
         window.isReleasedWhenClosed = false
         window.contentViewController = hostingController
+        SettingsWindowConfigurator.configure(
+            window,
+            shouldMigrateLegacySize: false
+        )
 
         let sizeCases: [(contentSize: NSSize, expectsOverflow: Bool)] = [
             (SettingsWindowSizingPolicy.minimumContentSize, true),
-            (SettingsWindowSizingPolicy.defaultContentSize, false),
-            (NSSize(width: 720, height: 900), false)
+            (SettingsWindowSizingPolicy.defaultContentSize, false)
         ]
 
         for sizeCase in sizeCases {
@@ -191,7 +239,7 @@ final class MenuPanelPresentationTests: XCTestCase {
             }
         }
 
-        let sharedTabSize = NSSize(width: 640, height: 700)
+        let sharedTabSize = NSSize(width: 520, height: 700)
         window.setContentSize(sharedTabSize)
         defaults.set(
             SettingsPane.notifications.rawValue,
@@ -212,6 +260,13 @@ final class MenuPanelPresentationTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(window.contentLayoutRect.size, sharedTabSize)
 
+        window.setContentSize(NSSize(width: 720, height: 760))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(
+            window.contentLayoutRect.size,
+            NSSize(width: 520, height: 760),
+            "生产窗口观察器应纠正横向变化并保留纵向调整"
+        )
         XCTAssertTrue(window.styleMask.contains(.resizable))
         window.contentViewController = nil
         window.close()
@@ -306,7 +361,7 @@ final class MenuPanelPresentationTests: XCTestCase {
         )
         defaults.set(
             true,
-            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+            forKey: SettingsWindowSizingPolicy.migrationDefaultsKey
         )
 
         let view = SettingsPanelView()
@@ -358,96 +413,114 @@ final class MenuPanelPresentationTests: XCTestCase {
 
     @MainActor
     func testProductionSettingsWindowConfiguratorMigratesLegacySizeOnce() {
-        let suiteName = "MenuPanelPresentationTests.windowMigration.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let settingsStore = SettingsStore(defaults: defaults)
-        let notificationManager = NotificationManager(
-            client: SettingsNotificationCenterClientStub()
-        )
-        let launchAtLoginController = LaunchAtLoginController(
-            service: SettingsLaunchAtLoginServiceStub()
-        )
-        let legacyView = SettingsPanelView()
-            .defaultAppStorage(defaults)
-            .environmentObject(settingsStore)
-            .environmentObject(notificationManager)
-            .environmentObject(launchAtLoginController)
-            .environmentObject(UpdateController(startsUpdater: false))
-        let legacyHostingController = NSHostingController(rootView: legacyView)
-        legacyHostingController.sizingOptions = []
         let legacyWindow = NSWindow(
             contentRect: NSRect(
                 origin: .zero,
-                size: NSSize(width: 460, height: 380)
+                size: SettingsWindowSizingPolicy.priorDefaultContentSize
             ),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         legacyWindow.isReleasedWhenClosed = false
-        legacyWindow.contentViewController = legacyHostingController
-        legacyWindow.setContentSize(NSSize(width: 460, height: 380))
 
         let didMigrate = SettingsWindowConfigurator.configure(
             legacyWindow,
             shouldMigrateLegacySize: true
         )
         XCTAssertTrue(didMigrate)
-        defaults.set(
-            true,
-            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
-        )
 
         let maximumContentSize = (legacyWindow.screen ?? NSScreen.main).map {
             legacyWindow.contentRect(forFrameRect: $0.visibleFrame).size
         } ?? SettingsWindowSizingPolicy.defaultContentSize
         let expectedMigratedSize = SettingsWindowSizingPolicy.migrationTarget(
-            currentContentSize: SettingsWindowSizingPolicy.minimumContentSize,
+            currentContentSize: SettingsWindowSizingPolicy.priorDefaultContentSize,
             maximumContentSize: maximumContentSize
         )
         XCTAssertEqual(legacyWindow.contentLayoutRect.size, expectedMigratedSize)
-        XCTAssertTrue(
-            defaults.bool(
-                forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
-            )
-        )
+        XCTAssertEqual(legacyWindow.contentMinSize, NSSize(width: 520, height: 520))
+        XCTAssertEqual(legacyWindow.contentMaxSize.width, 520)
+
+        legacyWindow.setContentSize(NSSize(width: 520, height: 640))
         let didMigrateAgain = SettingsWindowConfigurator.configure(
             legacyWindow,
             shouldMigrateLegacySize: false
         )
         XCTAssertFalse(didMigrateAgain)
-        XCTAssertEqual(legacyWindow.contentLayoutRect.size, expectedMigratedSize)
+        XCTAssertEqual(
+            legacyWindow.contentLayoutRect.size,
+            NSSize(width: 520, height: 640)
+        )
 
-        legacyWindow.contentViewController = nil
-        legacyWindow.close()
-
-        let restoredSize = NSSize(width: 600, height: 600)
-        let restoredView = SettingsPanelView()
-            .defaultAppStorage(defaults)
-            .environmentObject(settingsStore)
-            .environmentObject(notificationManager)
-            .environmentObject(launchAtLoginController)
-            .environmentObject(UpdateController(startsUpdater: false))
-        let restoredHostingController = NSHostingController(rootView: restoredView)
-        restoredHostingController.sizingOptions = []
-        let restoredWindow = NSWindow(
-            contentRect: NSRect(origin: .zero, size: restoredSize),
+        let customWindow = NSWindow(
+            contentRect: NSRect(
+                origin: .zero,
+                size: NSSize(width: 640, height: 680)
+            ),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
-        restoredWindow.isReleasedWhenClosed = false
-        restoredWindow.contentViewController = restoredHostingController
-        restoredWindow.setContentSize(restoredSize)
-        restoredWindow.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        customWindow.isReleasedWhenClosed = false
+        XCTAssertTrue(
+            SettingsWindowConfigurator.configure(
+                customWindow,
+                shouldMigrateLegacySize: true
+            )
+        )
+        XCTAssertEqual(
+            customWindow.contentLayoutRect.size,
+            NSSize(width: 520, height: 680)
+        )
 
-        XCTAssertEqual(restoredWindow.contentLayoutRect.size, restoredSize)
+        let tooShortWindow = NSWindow(
+            contentRect: NSRect(
+                origin: .zero,
+                size: NSSize(width: 520, height: 380)
+            ),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        tooShortWindow.isReleasedWhenClosed = false
+        XCTAssertFalse(
+            SettingsWindowConfigurator.configure(
+                tooShortWindow,
+                shouldMigrateLegacySize: false,
+                maximumContentSize: NSSize(width: 1_440, height: 1_000)
+            )
+        )
+        XCTAssertEqual(
+            tooShortWindow.contentLayoutRect.size,
+            NSSize(width: 520, height: 520)
+        )
 
-        restoredWindow.contentViewController = nil
-        restoredWindow.close()
+        let restoredOnSmallerScreenWindow = NSWindow(
+            contentRect: NSRect(
+                origin: .zero,
+                size: NSSize(width: 520, height: 900)
+            ),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        restoredOnSmallerScreenWindow.isReleasedWhenClosed = false
+        XCTAssertFalse(
+            SettingsWindowConfigurator.configure(
+                restoredOnSmallerScreenWindow,
+                shouldMigrateLegacySize: false,
+                maximumContentSize: NSSize(width: 1_440, height: 700)
+            )
+        )
+        XCTAssertEqual(
+            restoredOnSmallerScreenWindow.contentLayoutRect.size,
+            NSSize(width: 520, height: 700)
+        )
+
+        legacyWindow.close()
+        customWindow.close()
+        tooShortWindow.close()
+        restoredOnSmallerScreenWindow.close()
     }
 
     @MainActor
@@ -461,7 +534,7 @@ final class MenuPanelPresentationTests: XCTestCase {
         )
         defaults.set(
             true,
-            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+            forKey: SettingsWindowSizingPolicy.migrationDefaultsKey
         )
 
         let settingsStore = SettingsStore(defaults: defaults)
@@ -520,7 +593,7 @@ final class MenuPanelPresentationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(
             true,
-            forKey: SettingsWindowSizingPolicy.legacySizeMigrationDefaultsKey
+            forKey: SettingsWindowSizingPolicy.migrationDefaultsKey
         )
 
         let settingsStore = SettingsStore(defaults: defaults)

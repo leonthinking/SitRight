@@ -35,8 +35,13 @@ struct SitRightWidgetProvider: TimelineProvider {
             defaultRefresh,
             deadlineRefreshes.min() ?? defaultRefresh
         )
+        let rolloverEntry = SitRightWidgetEntry(
+            date: tomorrow,
+            snapshot: entry.snapshot,
+            history: entry.history
+        )
 
-        completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
+        completion(Timeline(entries: [entry, rolloverEntry], policy: .after(nextRefresh)))
     }
 
     private func loadEntry(date: Date) -> SitRightWidgetEntry {
@@ -54,77 +59,12 @@ struct SitRightWidgetEntry: TimelineEntry {
     let history: ActivityHistory
 }
 
-enum SitRightHeatmapRange {
-    case recentQuarter
-    case recentYear
-
-    var title: String {
-        switch self {
-        case .recentQuarter:
-            "最近 3 个月"
-        case .recentYear:
-            "最近 1 年"
-        }
-    }
-
-    var dayCount: Int {
-        switch self {
-        case .recentQuarter:
-            90
-        case .recentYear:
-            365
-        }
-    }
-}
-
 struct SitRightWidgetEntryView: View {
-    @Environment(\.widgetFamily) private var family
-
     let entry: SitRightWidgetEntry
-    let heatmapRange: SitRightHeatmapRange
 
     var body: some View {
-        switch family {
-        case .systemMedium:
-            mediumView
-                .containerBackground(.background, for: .widget)
-        case .systemLarge:
-            largeView
-                .containerBackground(.background, for: .widget)
-        default:
-            mediumView
-                .containerBackground(.background, for: .widget)
-        }
-    }
-
-    private var mediumView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                header
-                Spacer()
-                Text("\(today.dailyGoalActivityCount)/\(dailyTarget)")
-                    .font(.headline.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-
-            statusSummary
-
-            HeatmapView(
-                history: entry.history,
-                endDate: entry.date,
-                dayCount: heatmapRange.dayCount
-            )
-                .frame(maxHeight: .infinity)
-
-            HStack(spacing: 12) {
-                summaryPill(title: "提醒后", value: "\(today.reminderCompletedCount)")
-                summaryPill(title: "主动", value: "\(today.qualifiedProactiveCount)")
-                summaryPill(title: "本周", value: "\(weekCompletedCount)")
-                summaryPill(title: "连续", value: "\(streakDays) 天")
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(4)
+        largeView
+            .containerBackground(.background, for: .widget)
     }
 
     private var largeView: some View {
@@ -167,13 +107,13 @@ struct SitRightWidgetEntryView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(heatmapRange.title)
+                Text("最近 3 个月")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 HeatmapView(
                     history: entry.history,
                     endDate: entry.date,
-                    dayCount: heatmapRange.dayCount
+                    dayCount: 90
                 )
                     .frame(maxHeight: .infinity)
             }
@@ -245,17 +185,6 @@ struct SitRightWidgetEntryView: View {
         }
     }
 
-    private func summaryPill(title: String, value: String) -> some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .fontWeight(.semibold)
-                .monospacedDigit()
-        }
-        .font(.caption)
-    }
-
     private func statCard(title: String, value: String, systemImage: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Image(systemName: systemImage)
@@ -282,16 +211,6 @@ struct SitRightWidgetEntryView: View {
         max(today.dailyTargetSnapshot ?? entry.snapshot.dailyTarget, 1)
     }
 
-    private var responsePercentageText: String {
-        guard let responseRate = today.responseRate else { return "暂无" }
-        return "\(Int((responseRate * 100).rounded()))%"
-    }
-
-    private var responseOpportunityText: String {
-        guard today.reminderOpportunityCount > 0 else { return "暂无提醒" }
-        return "响应 \(today.reminderCompletedCount)/\(today.reminderOpportunityCount)"
-    }
-
     private var weekCompletedCount: Int {
         entry.history.completedCountInCurrentWeek(endingAt: entry.date)
     }
@@ -301,94 +220,175 @@ struct SitRightWidgetEntryView: View {
     }
 }
 
-struct HeatmapView: View {
+private struct HeatmapView: View {
     let history: ActivityHistory
     let endDate: Date
     let dayCount: Int
 
-    private let gap: CGFloat = 2
     private let calendar = Calendar.current
+    private let gap: CGFloat = 4
+    private let maximumCornerRadius: CGFloat = 4
 
     var body: some View {
-        GeometryReader { proxy in
-            let weeks = heatmapWeeks
-            let cellSize = max(
-                min(
-                    (proxy.size.width - CGFloat(max(weeks.count - 1, 0)) * gap) / CGFloat(max(weeks.count, 1)),
-                    (proxy.size.height - 6 * gap) / 7
-                ),
-                2
-            )
-            let totalWidth = CGFloat(weeks.count) * cellSize + CGFloat(max(weeks.count - 1, 0)) * gap
-            let totalHeight = 7 * cellSize + 6 * gap
+        let presentation = HeatmapPresentation(
+            history: history,
+            endDate: endDate,
+            dayCount: dayCount,
+            calendar: calendar
+        )
 
-            Canvas { context, size in
-                let originX = max((size.width - totalWidth) / 2, 0)
-                let originY = max((size.height - totalHeight) / 2, 0)
-                let cornerRadius = min(cellSize / 2, 2)
-
-                for weekIndex in weeks.indices {
-                    for dayIndex in 0..<7 {
-                        let rect = CGRect(
-                            x: originX + CGFloat(weekIndex) * (cellSize + gap),
-                            y: originY + CGFloat(dayIndex) * (cellSize + gap),
-                            width: cellSize,
-                            height: cellSize
-                        )
-                        let path = Path(roundedRect: rect, cornerRadius: cornerRadius)
-                        context.fill(path, with: .color(color(for: weeks[weekIndex][dayIndex])))
-                    }
-                }
+        VStack(spacing: 4) {
+            GeometryReader { proxy in
+                heatmap(in: proxy.size, presentation: presentation)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            heatmapLegend
+                .frame(height: 12)
+                .accessibilityHidden(true)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("活动热力图")
-        .accessibilityValue("最近 \(dayCount) 天完成 \(completedTotal) 次活动")
+        .accessibilityValue(accessibilitySummary(for: presentation))
     }
 
-    private func color(for day: ActivityDay?) -> Color {
-        guard let day, day.qualifiedActivityCount > 0 else {
-            return Color.secondary.opacity(0.14)
-        }
+    private func heatmap(
+        in size: CGSize,
+        presentation: HeatmapPresentation
+    ) -> some View {
+        let monthLabelHeight: CGFloat = 14
+        let weekdayLabelWidth: CGFloat = 0
+        let plotWidth = max(size.width - weekdayLabelWidth, 0)
+        let plotHeight = max(size.height - monthLabelHeight, 0)
+        let cellSize = max(
+            min(
+                (plotWidth - CGFloat(max(presentation.weeks.count - 1, 0)) * gap)
+                    / CGFloat(max(presentation.weeks.count, 1)),
+                (plotHeight - 6 * gap) / 7
+            ),
+            2
+        )
+        let totalWidth = CGFloat(presentation.weeks.count) * cellSize
+            + CGFloat(max(presentation.weeks.count - 1, 0)) * gap
+        let totalHeight = 7 * cellSize + 6 * gap
+        let originX = weekdayLabelWidth + max((plotWidth - totalWidth) / 2, 0)
+        let originY = monthLabelHeight + max((plotHeight - totalHeight) / 2, 0)
+        let step = cellSize + gap
 
-        switch day.qualifiedActivityCount {
-        case 1:
-            return Color.green.opacity(0.35)
-        case 2...3:
-            return Color.green.opacity(0.55)
-        case 4...5:
-            return Color.green.opacity(0.76)
-        default:
-            return Color.green
-        }
-    }
+        return ZStack(alignment: .topLeading) {
+            Canvas { context, _ in
+                for weekIndex in presentation.weeks.indices {
+                    for dayIndex in 0..<7 {
+                        let cell = presentation.weeks[weekIndex].cells[dayIndex]
+                        guard cell.state != .padding else { continue }
 
-    private var heatmapWeeks: [[ActivityDay?]] {
-        let end = calendar.startOfDay(for: endDate)
-        guard let start = calendar.date(byAdding: .day, value: -(dayCount - 1), to: end) else {
-            return []
-        }
+                        let rect = CGRect(
+                            x: originX + CGFloat(weekIndex) * step,
+                            y: originY + CGFloat(dayIndex) * step,
+                            width: cellSize,
+                            height: cellSize
+                        )
+                        let path = Path(
+                            roundedRect: rect,
+                            cornerRadius: min(cellSize * 0.22, maximumCornerRadius)
+                        )
 
-        let leadingEmptyCount = (calendar.component(.weekday, from: start) - calendar.firstWeekday + 7) % 7
-        var cells = Array<ActivityDay?>(repeating: nil, count: leadingEmptyCount)
-        cells.append(contentsOf: history.days(endingAt: end, count: dayCount, calendar: calendar).map(Optional.some))
-
-        let trailingEmptyCount = (7 - cells.count % 7) % 7
-        cells.append(contentsOf: Array<ActivityDay?>(repeating: nil, count: trailingEmptyCount))
-
-        return stride(from: 0, to: cells.count, by: 7).map { startIndex in
-            var week = Array(cells[startIndex..<min(startIndex + 7, cells.count)])
-            if week.count < 7 {
-                week.append(contentsOf: Array<ActivityDay?>(repeating: nil, count: 7 - week.count))
+                        if let fill = fillColor(for: cell.state) {
+                            context.fill(path, with: .color(fill))
+                        }
+                        if cell.state == .neutral {
+                            context.stroke(
+                                path,
+                                with: .color(Color.secondary.opacity(0.28)),
+                                lineWidth: min(max(cellSize * 0.08, 0.6), 1)
+                            )
+                        }
+                        if cell.isToday {
+                            context.stroke(
+                                path,
+                                with: .color(todayStrokeColor(for: cell.state)),
+                                lineWidth: min(max(cellSize * 0.1, 1), 1.5)
+                            )
+                        }
+                    }
+                }
             }
-            return week
+
+            let placements = HeatmapPresentation.monthLabelPlacements(
+                for: presentation.monthMarkers,
+                originX: originX,
+                step: step,
+                availableWidth: size.width,
+                labelWidth: 24
+            )
+            ForEach(
+                Array(placements.enumerated()),
+                id: \.offset
+            ) { _, placement in
+                Text(placement.title)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(width: 24, alignment: .leading)
+                    .offset(
+                        x: placement.xOffset,
+                        y: 0
+                    )
+            }
         }
     }
 
-    private var completedTotal: Int {
-        history.days(endingAt: endDate, count: dayCount, calendar: calendar)
-            .reduce(0) { $0 + $1.qualifiedActivityCount }
+    private var heatmapLegend: some View {
+        HStack(spacing: 4) {
+            Text("少")
+            ForEach(HeatmapIntensity.allCases, id: \.rawValue) { intensity in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(color(for: intensity))
+                    .frame(width: 9, height: 9)
+            }
+            Text("达标")
+        }
+        .font(.system(size: 8, weight: .medium))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func fillColor(for state: HeatmapCellState) -> Color? {
+        switch state {
+        case .padding, .neutral:
+            nil
+        case .inactive:
+            Color.secondary.opacity(0.14)
+        case let .activity(intensity):
+            color(for: intensity)
+        }
+    }
+
+    private func todayStrokeColor(for state: HeatmapCellState) -> Color {
+        switch state {
+        case .activity:
+            Color.primary.opacity(0.82)
+        case .padding, .inactive, .neutral:
+            Color.green
+        }
+    }
+
+    private func color(for intensity: HeatmapIntensity) -> Color {
+        switch intensity {
+        case .low:
+            Color.green.opacity(0.28)
+        case .medium:
+            Color.green.opacity(0.48)
+        case .high:
+            Color.green.opacity(0.72)
+        case .complete:
+            Color.green
+        }
+    }
+
+    private func accessibilitySummary(for presentation: HeatmapPresentation) -> String {
+        let summary = presentation.summary
+        return "最近 \(dayCount) 天，活动 \(summary.activityTotal) 次，活跃 \(summary.activeDays) 天，达标 \(summary.completedDays) 天"
     }
 }
 
@@ -398,7 +398,7 @@ private extension ActivityHistory {
         let calendar = Calendar.current
         let today = Date()
 
-        for offset in 0..<365 {
+        for offset in 0..<90 {
             guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { continue }
             let weekday = calendar.component(.weekday, from: date)
             let count = (offset + weekday) % 6 == 0 ? 4 : (offset + weekday) % 3 == 0 ? 2 : 0
@@ -416,23 +416,12 @@ private extension ActivityHistory {
             }
             day.completedCount = count
             day.lastCompletedAt = date
+            day.dailyTargetSnapshot = 4
+            day.eligibilitySnapshot = .scheduled
             history.upsert(day)
         }
 
         return history
-    }
-}
-
-struct SitRightWidget: Widget {
-    let kind = SitRightWidgetKind.activity
-
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: SitRightWidgetProvider()) { entry in
-            SitRightWidgetEntryView(entry: entry, heatmapRange: .recentYear)
-        }
-        .configurationDisplayName("SitRight 坐正 · 最近 1 年")
-        .description("查看今日活动、本周统计和最近 1 年活动热力图。")
-        .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
 
@@ -441,7 +430,7 @@ struct SitRightQuarterWidget: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SitRightWidgetProvider()) { entry in
-            SitRightWidgetEntryView(entry: entry, heatmapRange: .recentQuarter)
+            SitRightWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("SitRight 坐正 · 最近 3 个月")
         .description("查看今日活动、本周统计和最近 3 个月活动热力图。")
@@ -453,6 +442,5 @@ struct SitRightQuarterWidget: Widget {
 struct SitRightWidgetBundle: WidgetBundle {
     var body: some Widget {
         SitRightQuarterWidget()
-        SitRightWidget()
     }
 }

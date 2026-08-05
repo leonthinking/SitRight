@@ -216,11 +216,37 @@ final class PackagingContractTests: XCTestCase {
         XCTAssertTrue(buildScript.contains("recover_interrupted_installation"))
         XCTAssertTrue(buildScript.contains(".SitRightInstallTransaction"))
         XCTAssertTrue(buildScript.contains("write_install_transaction_state \"committed\""))
-        XCTAssertTrue(buildScript.contains("/usr/bin/pluginkit -a \"$install_widget\""))
+        XCTAssertTrue(buildScript.contains("\"$PLUGINKIT\" -a \"$install_widget\""))
+        XCTAssertTrue(buildScript.contains("unregister_competing_widget_registrations \"$install_widget\""))
+        XCTAssertTrue(buildScript.contains("\"$PLUGINKIT\" -m -A -D -v"))
         XCTAssertTrue(buildScript.contains("register_installed_app \"$install_app\""))
         XCTAssertTrue(buildScript.contains("Widget registration did not resolve uniquely"))
         XCTAssertTrue(buildScript.contains("registered_path_count\" = \"1\""))
         XCTAssertTrue(buildScript.contains("expected_path_count\" = \"1\""))
+        XCTAssertTrue(buildScript.contains("stable_registration_count\" = \"3\""))
+        XCTAssertTrue(buildScript.contains("$target_parent/.metadata_never_index"))
+        XCTAssertTrue(buildScript.contains("unregister_transient_app \"$APP_PATH\""))
+        XCTAssertTrue(
+            buildScript.contains(
+                "SITRIGHT_OUTPUT_APP_PATH must differ from $INSTALL_APP_PATH when installation is enabled"
+            )
+        )
+        XCTAssertTrue(buildScript.contains("normalize_absolute_path_lexically"))
+        XCTAssertTrue(buildScript.contains("canonical_path_allowing_missing"))
+        XCTAssertTrue(buildScript.contains("path_has_parent_traversal"))
+        XCTAssertTrue(
+            buildScript.contains(
+                "SITRIGHT_OUTPUT_APP_PATH must not contain parent-directory traversal when installation is enabled"
+            )
+        )
+
+        let outputPathGuard = try XCTUnwrap(
+            buildScript.range(
+                of: "SITRIGHT_OUTPUT_APP_PATH must differ from $INSTALL_APP_PATH when installation is enabled"
+            )
+        )
+        let projectGeneration = try XCTUnwrap(buildScript.range(of: "xcodegen generate"))
+        XCTAssertLessThan(outputPathGuard.lowerBound, projectGeneration.lowerBound)
 
         let installFunction = try function(named: "install_to_applications", in: buildScript)
         let sourceValidation = try XCTUnwrap(
@@ -245,6 +271,15 @@ final class PackagingContractTests: XCTestCase {
         let installedValidation = try XCTUnwrap(
             installFunction.range(of: "verify_installable_app \"$install_app\" \"Installed\"")
         )
+        let finalSourceUnregistration = try XCTUnwrap(
+            installFunction.range(
+                of: "unregister_transient_app \"$source_app\"",
+                options: .backwards
+            )
+        )
+        let sourceIsolation = try XCTUnwrap(
+            installFunction.range(of: "mv \"$source_app\" \"$isolated_source_app\"")
+        )
         let registration = try XCTUnwrap(
             installFunction.range(of: "register_installed_app \"$install_app\"")
         )
@@ -256,7 +291,14 @@ final class PackagingContractTests: XCTestCase {
         XCTAssertLessThan(processStop.lowerBound, replacement.lowerBound)
         XCTAssertLessThan(replacement.lowerBound, installedState.lowerBound)
         XCTAssertLessThan(installedState.lowerBound, installedValidation.lowerBound)
+        XCTAssertLessThan(installedValidation.lowerBound, finalSourceUnregistration.lowerBound)
+        XCTAssertLessThan(finalSourceUnregistration.lowerBound, sourceIsolation.lowerBound)
+        XCTAssertLessThan(sourceIsolation.lowerBound, registration.lowerBound)
         XCTAssertLessThan(installedValidation.lowerBound, registration.lowerBound)
+        XCTAssertEqual(
+            exactLineCount("unregister_transient_app \"$source_app\"", in: String(installFunction)),
+            2
+        )
 
         let rollbackFunction = try function(named: "rollback_installation_transaction", in: buildScript)
         XCTAssertTrue(rollbackFunction.contains("register_installed_app \"$INSTALL_APP_PATH\" || return 1"))
@@ -1327,6 +1369,259 @@ final class PackagingContractTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: finalDMG, encoding: .utf8), "old-dmg")
         XCTAssertEqual(try String(contentsOf: finalChecksum, encoding: .utf8), "old-checksum")
         XCTAssertFalse(FileManager.default.fileExists(atPath: transactionDirectory.path))
+    }
+
+    func testCompetingWidgetRegistrationCleanupParsesDuplicatePhysicalPaths() throws {
+        let buildScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Scripts/build_app.sh"),
+            encoding: .utf8
+        )
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SitRightPlugInKitFixture-\(UUID().uuidString)", isDirectory: true)
+        let plugInKitURL = temporaryDirectory.appendingPathComponent("pluginkit")
+        let launchServicesURL = temporaryDirectory.appendingPathComponent("lsregister")
+        let eventsURL = temporaryDirectory.appendingPathComponent("events.log")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let canonicalWidget = "/Applications/SitRight.app/Contents/PlugIns/SitRightWidgetExtension.appex"
+        let duplicateWidget = "/tmp/Old Build/SitRight.app/Contents/PlugIns/SitRightWidgetExtension.appex"
+        let secondDuplicateWidget = "/tmp/Second Build/SitRight.app/Contents/PlugIns/SitRightWidgetExtension.appex"
+        let plugInKitFixture = """
+        #!/bin/bash
+        set -euo pipefail
+        if [ "$1" = "-m" ]; then
+          /usr/bin/printf 'query:%s\n' "$*" >>"$SITRIGHT_TEST_LOG"
+          /usr/bin/printf ' bundle(0.2.5)\tUUID-A\tDATE\t%s\n' "$SITRIGHT_CANONICAL_WIDGET"
+          /usr/bin/printf ' bundle(0.2.5) UUID-B DATE %s\n' "$SITRIGHT_DUPLICATE_WIDGET"
+          /usr/bin/printf ' bundle(0.2.5)\tUUID-C\tDATE\t%s\n' "$SITRIGHT_SECOND_DUPLICATE_WIDGET"
+          /usr/bin/printf ' (3 plug-ins)\n'
+          exit 0
+        fi
+        if [ "$1" = "-r" ]; then
+          /usr/bin/printf 'remove:%s\n' "$2" >>"$SITRIGHT_TEST_LOG"
+          exit 0
+        fi
+        exit 64
+        """
+        let launchServicesFixture = """
+        #!/bin/bash
+        set -euo pipefail
+        /usr/bin/printf 'lsregister:%s\n' "$*" >>"$SITRIGHT_TEST_LOG"
+        """
+        try plugInKitFixture.write(to: plugInKitURL, atomically: true, encoding: .utf8)
+        try launchServicesFixture.write(
+            to: launchServicesURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: plugInKitURL.path
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: launchServicesURL.path
+        )
+
+        let runner = """
+        set -euo pipefail
+        PLUGINKIT="$1/pluginkit"
+        LSREGISTER="$1/lsregister"
+        WIDGET_BUNDLE_IDENTIFIER="com.leon.SitRight.SitRightWidgetExtension"
+        SITRIGHT_TEST_LOG="$1/events.log"
+        SITRIGHT_CANONICAL_WIDGET="$2"
+        SITRIGHT_DUPLICATE_WIDGET="$3"
+        SITRIGHT_SECOND_DUPLICATE_WIDGET="$4"
+        export SITRIGHT_TEST_LOG SITRIGHT_CANONICAL_WIDGET SITRIGHT_DUPLICATE_WIDGET
+        export SITRIGHT_SECOND_DUPLICATE_WIDGET
+        \(try function(named: "unregister_competing_widget_registrations", in: buildScript))
+        unregister_competing_widget_registrations "$SITRIGHT_CANONICAL_WIDGET"
+        """
+        XCTAssertEqual(
+            try bashExitStatus(
+                script: runner,
+                arguments: [
+                    temporaryDirectory.path,
+                    canonicalWidget,
+                    duplicateWidget,
+                    secondDuplicateWidget,
+                ]
+            ),
+            0
+        )
+
+        let events = try String(contentsOf: eventsURL, encoding: .utf8)
+        XCTAssertTrue(events.contains("query:-m -A -D -v -i com.leon.SitRight.SitRightWidgetExtension"))
+        XCTAssertTrue(events.contains("remove:\(duplicateWidget)"))
+        XCTAssertTrue(events.contains("remove:\(secondDuplicateWidget)"))
+        XCTAssertFalse(events.contains("remove:\(canonicalWidget)"))
+        XCTAssertTrue(events.contains("lsregister:-u /tmp/Old Build/SitRight.app"))
+        XCTAssertTrue(events.contains("lsregister:-u /tmp/Second Build/SitRight.app"))
+    }
+
+    func testInstallOutputGuardNormalizesMissingParentTraversal() throws {
+        let buildScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Scripts/build_app.sh"),
+            encoding: .utf8
+        )
+        let runner = """
+        set -euo pipefail
+        \(try function(named: "normalize_absolute_path_lexically", in: buildScript))
+        \(try function(named: "canonical_path_allowing_missing", in: buildScript))
+        test "$(canonical_path_allowing_missing "$1")" = "$(canonical_path_allowing_missing "$2")"
+        """
+        XCTAssertEqual(
+            try bashExitStatus(
+                script: runner,
+                arguments: [
+                    "/Applications/sitright-parent-that-does-not-exist/../SitRight.app",
+                    "/Applications/SitRight.app",
+                ]
+            ),
+            0
+        )
+    }
+
+    func testInstallOutputGuardRejectsParentTraversalThroughSymlink() throws {
+        let buildScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Scripts/build_app.sh"),
+            encoding: .utf8
+        )
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SitRightOutputTraversal-\(UUID().uuidString)", isDirectory: true)
+        let applicationsDirectory = temporaryDirectory.appendingPathComponent("Applications", isDirectory: true)
+        let utilitiesDirectory = applicationsDirectory.appendingPathComponent("Utilities", isDirectory: true)
+        let linksDirectory = temporaryDirectory.appendingPathComponent("Links", isDirectory: true)
+        let outputLink = linksDirectory.appendingPathComponent("output")
+        try FileManager.default.createDirectory(at: utilitiesDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: linksDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: outputLink, withDestinationURL: utilitiesDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let traversalPath = outputLink
+            .appendingPathComponent("..")
+            .appendingPathComponent("SitRight.app")
+            .path
+        let runner = """
+        set -euo pipefail
+        \(try function(named: "path_has_parent_traversal", in: buildScript))
+        path_has_parent_traversal "$1"
+        """
+        XCTAssertEqual(
+            try bashExitStatus(script: runner, arguments: [traversalPath]),
+            0
+        )
+    }
+
+    func testInstalledWidgetRegistrationRequiresThreeConsecutiveUniqueObservations() throws {
+        let buildScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Scripts/build_app.sh"),
+            encoding: .utf8
+        )
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SitRightStableRegistration-\(UUID().uuidString)", isDirectory: true)
+        let plugInKitURL = temporaryDirectory.appendingPathComponent("pluginkit")
+        let launchServicesURL = temporaryDirectory.appendingPathComponent("lsregister")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let plugInKitFixture = """
+        #!/bin/bash
+        set -euo pipefail
+        if [ "$1" = "-m" ]; then
+          count=0
+          if [ -f "$SITRIGHT_QUERY_COUNT" ]; then
+            count="$(/bin/cat "$SITRIGHT_QUERY_COUNT")"
+          fi
+          count=$((count + 1))
+          /usr/bin/printf '%s\n' "$count" >"$SITRIGHT_QUERY_COUNT"
+          /usr/bin/printf ' bundle(0.2.5) UUID-A DATE %s\n' "$SITRIGHT_CANONICAL_WIDGET"
+          if [ "$SITRIGHT_SEQUENCE" = "late-duplicate" ] && [ "$count" = "3" ]; then
+            /usr/bin/printf ' bundle(0.2.5) UUID-B DATE %s\n' "$SITRIGHT_DUPLICATE_WIDGET"
+          elif [ "$SITRIGHT_SEQUENCE" = "unstable" ] && [ "$count" -gt 1 ] && [ $((count % 2)) = 1 ]; then
+            /usr/bin/printf ' bundle(0.2.5) UUID-B DATE %s\n' "$SITRIGHT_DUPLICATE_WIDGET"
+          fi
+          exit 0
+        fi
+        if [ "$1" = "-a" ] || [ "$1" = "-r" ]; then
+          exit 0
+        fi
+        exit 64
+        """
+        let launchServicesFixture = """
+        #!/bin/bash
+        set -euo pipefail
+        exit 0
+        """
+        try plugInKitFixture.write(to: plugInKitURL, atomically: true, encoding: .utf8)
+        try launchServicesFixture.write(to: launchServicesURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: plugInKitURL.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launchServicesURL.path)
+
+        let runner = """
+        set -euo pipefail
+        PLUGINKIT="$1/pluginkit"
+        LSREGISTER="$1/lsregister"
+        WIDGET_BUNDLE_IDENTIFIER="com.leon.SitRight.SitRightWidgetExtension"
+        SITRIGHT_CANONICAL_WIDGET="$2"
+        SITRIGHT_DUPLICATE_WIDGET="$3"
+        SITRIGHT_SEQUENCE="$4"
+        SITRIGHT_QUERY_COUNT="$1/query-count"
+        SITRIGHT_WIDGET_REGISTRATION_POLL_INTERVAL=0
+        export SITRIGHT_CANONICAL_WIDGET SITRIGHT_DUPLICATE_WIDGET SITRIGHT_SEQUENCE
+        export SITRIGHT_QUERY_COUNT SITRIGHT_WIDGET_REGISTRATION_POLL_INTERVAL
+        \(try function(named: "unregister_competing_widget_registrations", in: buildScript))
+        \(try function(named: "register_installed_app", in: buildScript))
+        register_installed_app "/Applications/SitRight.app"
+        """
+        let canonicalWidget = "/Applications/SitRight.app/Contents/PlugIns/SitRightWidgetExtension.appex"
+        let duplicateWidget = "/tmp/Late SitRight.app/Contents/PlugIns/SitRightWidgetExtension.appex"
+
+        XCTAssertEqual(
+            try bashExitStatus(
+                script: runner,
+                arguments: [temporaryDirectory.path, canonicalWidget, duplicateWidget, "late-duplicate"]
+            ),
+            0
+        )
+        XCTAssertEqual(
+            try String(
+                contentsOf: temporaryDirectory.appendingPathComponent("query-count"),
+                encoding: .utf8
+            ).trimmingCharacters(in: .whitespacesAndNewlines),
+            "6"
+        )
+
+        try FileManager.default.removeItem(
+            at: temporaryDirectory.appendingPathComponent("query-count")
+        )
+        XCTAssertNotEqual(
+            try bashExitStatus(
+                script: runner,
+                arguments: [temporaryDirectory.path, canonicalWidget, duplicateWidget, "unstable"]
+            ),
+            0
+        )
+        XCTAssertEqual(
+            try String(
+                contentsOf: temporaryDirectory.appendingPathComponent("query-count"),
+                encoding: .utf8
+            ).trimmingCharacters(in: .whitespacesAndNewlines),
+            "9"
+        )
     }
 
     func testInterruptedApplicationInstallRestoresAndRegistersPreviousApp() throws {

@@ -23,17 +23,41 @@ final class WidgetSnapshotTests: XCTestCase {
         )
     }
 
-    func testWidgetKindsRemainStableUniqueAndCompleteForReloading() {
-        XCTAssertEqual(SitRightWidgetKind.activity, "SitRightActivityWidget")
+    func testQuarterWidgetKindRemainsStableAndRetiredAnnualKindIsNotReloaded() {
+        XCTAssertEqual(SitRightWidgetKind.retiredAnnualActivity, "SitRightActivityWidget")
         XCTAssertEqual(SitRightWidgetKind.quarterActivity, "SitRightQuarterActivityWidget")
         XCTAssertEqual(
             SitRightWidgetKind.allActivityKinds,
-            [SitRightWidgetKind.activity, SitRightWidgetKind.quarterActivity]
+            [SitRightWidgetKind.quarterActivity]
         )
+        XCTAssertFalse(SitRightWidgetKind.allActivityKinds.contains(SitRightWidgetKind.retiredAnnualActivity))
         XCTAssertEqual(
             Set(SitRightWidgetKind.allActivityKinds).count,
             SitRightWidgetKind.allActivityKinds.count
         )
+    }
+
+    func testOnlyQuarterLargeWidgetRemainsRegistered() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let widgetSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Widget/SitRightWidget.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(widgetSource.contains(".supportedFamilies([.systemLarge])"))
+        XCTAssertFalse(widgetSource.contains(".supportedFamilies([.systemMedium, .systemLarge])"))
+        XCTAssertFalse(widgetSource.contains("SitRight 坐正 · 最近 1 年"))
+        XCTAssertFalse(widgetSource.contains("SitRightWidget()"))
+        XCTAssertFalse(widgetSource.contains("SitRightWidgetKind.retiredAnnualActivity"))
+        XCTAssertTrue(widgetSource.contains("SitRightQuarterWidget()"))
+        XCTAssertTrue(widgetSource.contains("dayCount: 90"))
+        XCTAssertTrue(widgetSource.contains("guard cell.state != .padding else { continue }"))
+        XCTAssertTrue(widgetSource.contains("entries: [entry, rolloverEntry]"))
+        XCTAssertTrue(widgetSource.contains("HeatmapPresentation.monthLabelPlacements"))
+        XCTAssertTrue(widgetSource.contains("todayStrokeColor(for: cell.state)"))
+        XCTAssertTrue(widgetSource.contains("活跃 \\(summary.activeDays) 天，达标 \\(summary.completedDays) 天"))
     }
 
     func testDueSnapshotProgressIsCompleteWhenNoNextReminderDate() {

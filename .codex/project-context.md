@@ -149,8 +149,8 @@ The widget code lives in `Widget/`.
 - The retired annual identity `SitRightActivityWidget` remains reserved in source but is not registered or reloaded. Existing annual placements cannot migrate to the quarterly kind and must be removed by the user.
 - The quarterly Widget is display-only and shows the daily goal, reminder completions, qualified proactive activity, week/streak statistics, current reminder status, and a qualified-activity heatmap.
 - Heatmap intensity represents each day's progress against its persisted daily-target snapshot: below 25%, 25–49%, 50–99%, and at least 100%. A positive legacy day without a target snapshot uses only the lowest intensity rather than inferring historical completion from today's target.
-- The quarterly Widget shows localized month markers and a completion legend.
-- Padding outside the rolling 90-day range is transparent, today is outlined, and inactive paused/non-workdays use a neutral outline. Dates without eligibility/history remain visually indistinguishable from ordinary inactive dates because no first-tracked date is persisted.
+- The quarterly Widget shows localized month markers and a completion legend using the original compact square-cell layout.
+- Leading padding before the rolling 90-day range and the remaining future weekdays through the end of today's calendar week use matching non-statistical decorative-gray placeholders, keeping both outer weeks visually complete and symmetric. Their fill is deliberately lighter than a real inactive day so they do not imply missed activity. These decorative cells have no date and never enter activity totals, active/completed days, streaks, month markers, persistence, or accessibility summaries. Today is outlined. Inactive paused/non-workdays use a neutral outline. Dates without eligibility/history remain visually indistinguishable from ordinary inactive dates because no first-tracked date is persisted.
 - `WidgetSyncController` writes only when Widget-relevant snapshot fields change, then reloads the quarterly Widget kind.
 
 Widget behavior depends on matching:

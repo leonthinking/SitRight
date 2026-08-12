@@ -24,6 +24,29 @@ final class HeatmapPresentationTests: XCTestCase {
             presentation.weeks.flatMap(\.cells).filter(\.isToday).count,
             1
         )
+        XCTAssertEqual(presentation.weeks.count, 14)
+    }
+
+    func testNinetyDayRangeCanFitExactlyThirteenCalendarWeeks() throws {
+        let calendar = Self.calendar(firstWeekday: 2)
+        let end = try Self.date(2026, 8, 1, calendar: calendar)
+
+        let presentation = HeatmapPresentation(
+            history: ActivityHistory(),
+            endDate: end,
+            dayCount: 90,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(presentation.weeks.count, 13)
+        XCTAssertEqual(
+            presentation.weeks.flatMap(\.cells).compactMap(\.date).count,
+            90
+        )
+        XCTAssertEqual(
+            presentation.weeks.flatMap(\.cells).filter { $0.state == .future }.count,
+            1
+        )
     }
 
     func testLeapDayIsIncludedWithoutChangingQuarterDayCount() throws {
@@ -57,11 +80,13 @@ final class HeatmapPresentationTests: XCTestCase {
         )
 
         XCTAssertNotNil(mondayFirst.weeks[0].cells[0].date)
+        XCTAssertEqual(mondayFirst.weeks[0].cells.dropFirst().map(\.state), Array(repeating: .future, count: 6))
         XCTAssertEqual(sundayFirst.weeks[0].cells[0].state, .padding)
         XCTAssertNotNil(sundayFirst.weeks[0].cells[1].date)
+        XCTAssertEqual(sundayFirst.weeks[0].cells.dropFirst(2).map(\.state), Array(repeating: .future, count: 5))
     }
 
-    func testPaddingCellsAreTransparentPresentationState() throws {
+    func testLeadingAndFuturePlaceholdersCompleteOuterWeeksWithoutAffectingSummary() throws {
         let calendar = Self.calendar(firstWeekday: 2)
         let end = try Self.date(2026, 8, 3, calendar: calendar)
         let presentation = HeatmapPresentation(
@@ -70,10 +95,37 @@ final class HeatmapPresentationTests: XCTestCase {
             dayCount: 90,
             calendar: calendar
         )
-        let padding = presentation.weeks.flatMap(\.cells).filter { $0.date == nil }
+        let cells = presentation.weeks.flatMap(\.cells)
+        let padding = cells.filter { $0.state == .padding }
+        let future = cells.filter { $0.state == .future }
+        let todayIndex = try XCTUnwrap(cells.firstIndex(where: \.isToday))
 
-        XCTAssertFalse(padding.isEmpty)
-        XCTAssertTrue(padding.allSatisfy { $0.state == .padding && !$0.isToday })
+        XCTAssertEqual(padding.count, 2)
+        XCTAssertEqual(future.count, 6)
+        XCTAssertTrue(padding.allSatisfy { $0.date == nil && !$0.isToday })
+        XCTAssertTrue(future.allSatisfy { $0.date == nil && !$0.isToday })
+        XCTAssertTrue(cells[..<2].allSatisfy { $0.state == .padding })
+        XCTAssertTrue(cells[(todayIndex + 1)...].allSatisfy { $0.state == .future })
+        XCTAssertEqual(presentation.summary, HeatmapSummary(
+            activityTotal: 0,
+            activeDays: 0,
+            completedDays: 0
+        ))
+    }
+
+    func testNoFutureCellsAreAddedWhenTodayEndsTheCalendarWeek() throws {
+        let calendar = Self.calendar(firstWeekday: 2)
+        let end = try Self.date(2026, 8, 2, calendar: calendar)
+        let presentation = HeatmapPresentation(
+            history: ActivityHistory(),
+            endDate: end,
+            dayCount: 1,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(presentation.weeks.count, 1)
+        XCTAssertFalse(presentation.weeks[0].cells.contains { $0.state == .future })
+        XCTAssertEqual(presentation.weeks[0].cells.last?.date, end)
     }
 
     func testMonthMarkersFollowVisibleMonthBoundaries() throws {

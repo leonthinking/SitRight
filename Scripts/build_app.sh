@@ -20,6 +20,8 @@ PLUGINKIT="/usr/bin/pluginkit"
 APP_GROUP_IDENTIFIER="973KFG9CL9.com.leon.SitRight"
 EXPECTED_TEAM_IDENTIFIER="${APP_GROUP_IDENTIFIER%%.*}"
 WIDGET_BUNDLE_IDENTIFIER="com.leon.SitRight.SitRightWidgetExtension"
+WIDGET_PROCESS_NAME="SitRightWidgetExtension"
+KILLALL="${SITRIGHT_KILLALL_PATH:-/usr/bin/killall}"
 SITRIGHT_LICENSE_SOURCE="$ROOT_DIR/Sources/Resources/SitRight-License.txt"
 THIRD_PARTY_NOTICES_SOURCE="$ROOT_DIR/Sources/Resources/Third-Party-Notices.txt"
 BUILD_OUTPUT_STAGING_DIR=""
@@ -93,6 +95,105 @@ unregister_transient_app() {
 
   [ -e "$appex_path" ] && "$PLUGINKIT" -r "$appex_path" 2>/dev/null || true
   [ -e "$app_path" ] && "$LSREGISTER" -u "$app_path" 2>/dev/null || true
+}
+
+terminate_running_named_process() {
+  local process_name="$1"
+  local process_label="$2"
+  local attempt
+  local probe_status
+
+  if "$KILLALL" -s "$process_name" >/dev/null 2>&1; then
+    probe_status=0
+  else
+    probe_status=$?
+  fi
+  case "$probe_status" in
+    0)
+      ;;
+    1)
+      return 0
+      ;;
+    *)
+      echo "Failed to inspect the running $process_label process" >&2
+      return 1
+      ;;
+  esac
+
+  if ! "$KILLALL" -q -TERM "$process_name" >/dev/null 2>&1; then
+    if "$KILLALL" -s "$process_name" >/dev/null 2>&1; then
+      probe_status=0
+    else
+      probe_status=$?
+    fi
+    case "$probe_status" in
+      1)
+        return 0
+        ;;
+      0)
+        echo "Failed to terminate the running $process_label process" >&2
+        return 1
+        ;;
+      *)
+        echo "Failed to inspect the running $process_label process" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  for attempt in 1 2 3 4 5; do
+    if "$KILLALL" -s "$process_name" >/dev/null 2>&1; then
+      probe_status=0
+    else
+      probe_status=$?
+    fi
+    case "$probe_status" in
+      1)
+        return 0
+        ;;
+      0)
+        ;;
+      *)
+        echo "Failed to inspect the running $process_label process" >&2
+        return 1
+        ;;
+    esac
+    /bin/sleep "${SITRIGHT_PROCESS_STOP_POLL_INTERVAL:-0.2}"
+  done
+
+  if "$KILLALL" -s "$process_name" >/dev/null 2>&1; then
+    probe_status=0
+  else
+    probe_status=$?
+  fi
+  case "$probe_status" in
+    1)
+      return 0
+      ;;
+    0)
+      echo "$process_label remained active after termination" >&2
+      return 1
+      ;;
+    *)
+      echo "Failed to inspect the running $process_label process" >&2
+      return 1
+      ;;
+  esac
+}
+
+terminate_running_main_app() {
+  terminate_running_named_process "SitRight" "SitRight app"
+}
+
+terminate_running_widget_extension() {
+  terminate_running_named_process "$WIDGET_PROCESS_NAME" "SitRight Widget extension"
+}
+
+stop_running_sitright_processes() {
+  if ! terminate_running_main_app; then
+    return 1
+  fi
+  terminate_running_widget_extension
 }
 
 unregister_competing_widget_registrations() {
@@ -424,6 +525,12 @@ rollback_installation_transaction() {
       ;;
   esac
 
+  unregister_transient_app "$INSTALL_APP_PATH"
+  if ! stop_running_sitright_processes; then
+    echo "Cannot restore the previous SitRight installation while its processes remain active" >&2
+    return 1
+  fi
+
   if [ -e "$INSTALL_TRANSACTION_DIR/had-previous-app" ]; then
     had_previous=1
   fi
@@ -585,8 +692,14 @@ install_to_applications() {
   write_install_transaction_state "replacing"
 
   unregister_transient_app "$source_app"
-  /usr/bin/pkill -x SitRight 2>/dev/null || true
   unregister_transient_app "$install_app"
+  if ! stop_running_sitright_processes; then
+    echo "SitRight installation failed while stopping the previous App and Widget processes" >&2
+    if ! rollback_installation_transaction; then
+      echo "Automatic rollback failed; preserved installation files in $INSTALL_TRANSACTION_DIR" >&2
+    fi
+    return 1
+  fi
 
   if [ -e "$install_app" ]; then
     mv "$install_app" "$previous_app" || return 1
@@ -614,6 +727,13 @@ install_to_applications() {
     if ! rollback_installation_transaction; then
       echo "Automatic rollback failed; preserved installation files in $INSTALL_TRANSACTION_DIR" >&2
       return 1
+    fi
+    return 1
+  fi
+  if ! terminate_running_widget_extension; then
+    echo "SitRight installation failed while confirming the new Widget extension lifecycle" >&2
+    if ! rollback_installation_transaction; then
+      echo "Automatic rollback failed; preserved installation files in $INSTALL_TRANSACTION_DIR" >&2
     fi
     return 1
   fi

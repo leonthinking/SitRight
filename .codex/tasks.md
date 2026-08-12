@@ -30,6 +30,22 @@ No tracked tasks yet.
 
 ## Done
 
+### TASK-20260812-heatmap-symmetric-edge-fill
+
+- Status: Done
+- Goal: Render the rolling-range leading alignment cells and the future cells after today with matching lighter decorative-gray placeholders, making the quarterly heatmap's outer weeks visually complete and symmetric without changing its 90-day statistics.
+- Impacted areas: Quarterly Widget cell rendering, heatmap presentation/view contracts, README, project context, versioned packaged installation, and visual smoke verification.
+- Verification: Focused `HeatmapPresentationTests` passed 14/14 and `WidgetSnapshotTests` passed 16/16; the full Swift suite passed 252/252. `bash -n Scripts/build_app.sh` and `git diff --check` passed. The signed `0.2.8 (13)` App/Widget candidate built and installed successfully with TeamIdentifier `973KFG9CL9` and the required App Group; both bundles report the same version, strict signature checks pass, and PlugInKit resolves exactly one canonical `/Applications` extension. Two independent adversarial reviews completed; the confirmed indistinguishable-placeholder and task-documentation findings were fixed, with final re-review finding no remaining P0-P3.
+- Handoff notes: Leading and trailing placeholders remain undated, non-statistical, non-persistent, and absent from aggregated accessibility totals. They share a lighter decorative gray than real inactive days, preserving symmetry without implying missed activity. The compact grid, bottom legend, today outline, month markers, Widget kind, App Group, and unrelated `output/` directory are unchanged. Orca desktop capture was unavailable because its runtime was not running, so final pixel-level acceptance remains the user's desktop screenshot.
+
+### TASK-20260811-heatmap-future-week-fill
+
+- Status: Done
+- Goal: Preserve the quarterly Widget's compact heatmap layout while drawing inactive-gray placeholders for the not-yet-arrived weekdays after today through the end of the current calendar week, matching the clarified flomo-style visual intent.
+- Impacted areas: Internal heatmap cell state, quarterly Widget rendering, packaged-install Widget process lifecycle, focused presentation/packaging regression coverage, README, and project context.
+- Verification: Focused `HeatmapPresentationTests` passed 14/14, focused `WidgetSnapshotTests` passed 16/16, focused `PackagingContractTests` passed 25/25, and the final full suite passed 252/252. `bash -n Scripts/build_app.sh` and `git diff --check` passed. The signed `0.2.7 (12)` App/Widget build installed successfully with TeamIdentifier `973KFG9CL9` and the required App Group; App and Widget versions match, PlugInKit resolves exactly one canonical `/Applications` extension, and a new Widget process launched after installation. Two independent final reviews found no remaining P0-P3.
+- Handoff notes: Future placeholders do not enter the rolling 90-day date set, activity totals, active/completed days, streaks, month markers, persistence, or per-day accessibility nodes. Leading range padding stays transparent. The earlier adaptive-spacing and title-row legend experiment was removed after the user clarified that the desired fill was future calendar cells rather than redistributed whitespace. The local signed-install lifecycle fix remains because it addresses the independently confirmed stale Widget process that caused an installed build to keep rendering old code; its guarantee does not extend to DMG drag replacement or Sparkle without separate acceptance. Final visual confirmation remains the user's screenshot because local desktop capture was unavailable.
+
 ### TASK-20260803-retire-annual-widget
 
 - Status: Done

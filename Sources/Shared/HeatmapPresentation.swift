@@ -9,6 +9,7 @@ enum HeatmapIntensity: Int, CaseIterable, Equatable {
 
 enum HeatmapCellState: Equatable {
     case padding
+    case future
     case inactive
     case neutral
     case activity(HeatmapIntensity)
@@ -129,10 +130,10 @@ struct HeatmapPresentation: Equatable {
 
         let markers = markerCandidates.map(\.marker)
 
-        let trailingPadding = (7 - cells.count % 7) % 7
+        let trailingFutureDays = (7 - cells.count % 7) % 7
         cells.append(contentsOf: Array(
-            repeating: HeatmapCell(date: nil, state: .padding, isToday: false),
-            count: trailingPadding
+            repeating: HeatmapCell(date: nil, state: .future, isToday: false),
+            count: trailingFutureDays
         ))
 
         weeks = stride(from: 0, to: cells.count, by: 7).map { startIndex in

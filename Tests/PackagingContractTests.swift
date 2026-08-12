@@ -220,6 +220,8 @@ final class PackagingContractTests: XCTestCase {
         XCTAssertTrue(buildScript.contains("unregister_competing_widget_registrations \"$install_widget\""))
         XCTAssertTrue(buildScript.contains("\"$PLUGINKIT\" -m -A -D -v"))
         XCTAssertTrue(buildScript.contains("register_installed_app \"$install_app\""))
+        XCTAssertTrue(buildScript.contains("terminate_running_widget_extension"))
+        XCTAssertFalse(buildScript.contains("pkill -x SitRightWidgetExtension"))
         XCTAssertTrue(buildScript.contains("Widget registration did not resolve uniquely"))
         XCTAssertTrue(buildScript.contains("registered_path_count\" = \"1\""))
         XCTAssertTrue(buildScript.contains("expected_path_count\" = \"1\""))
@@ -261,7 +263,12 @@ final class PackagingContractTests: XCTestCase {
         let replacementState = try XCTUnwrap(
             installFunction.range(of: "write_install_transaction_state \"replacing\"")
         )
-        let processStop = try XCTUnwrap(installFunction.range(of: "/usr/bin/pkill -x SitRight"))
+        let oldRegistrationRemoval = try XCTUnwrap(
+            installFunction.range(of: "unregister_transient_app \"$install_app\"")
+        )
+        let initialProcessStop = try XCTUnwrap(
+            installFunction.range(of: "stop_running_sitright_processes")
+        )
         let replacement = try XCTUnwrap(
             installFunction.range(of: "mv \"$install_app\" \"$previous_app\"")
         )
@@ -283,26 +290,152 @@ final class PackagingContractTests: XCTestCase {
         let registration = try XCTUnwrap(
             installFunction.range(of: "register_installed_app \"$install_app\"")
         )
+        let finalWidgetProcessStop = try XCTUnwrap(
+            installFunction.range(of: "terminate_running_widget_extension")
+        )
 
         XCTAssertLessThan(sourceValidation.lowerBound, recovery.lowerBound)
         XCTAssertLessThan(recovery.lowerBound, candidatePreparation.lowerBound)
         XCTAssertLessThan(candidatePreparation.lowerBound, replacementState.lowerBound)
-        XCTAssertLessThan(replacementState.lowerBound, processStop.lowerBound)
-        XCTAssertLessThan(processStop.lowerBound, replacement.lowerBound)
+        XCTAssertLessThan(replacementState.lowerBound, oldRegistrationRemoval.lowerBound)
+        XCTAssertLessThan(oldRegistrationRemoval.lowerBound, initialProcessStop.lowerBound)
+        XCTAssertLessThan(initialProcessStop.lowerBound, replacement.lowerBound)
         XCTAssertLessThan(replacement.lowerBound, installedState.lowerBound)
         XCTAssertLessThan(installedState.lowerBound, installedValidation.lowerBound)
         XCTAssertLessThan(installedValidation.lowerBound, finalSourceUnregistration.lowerBound)
         XCTAssertLessThan(finalSourceUnregistration.lowerBound, sourceIsolation.lowerBound)
+        XCTAssertLessThan(sourceIsolation.lowerBound, finalWidgetProcessStop.lowerBound)
+        XCTAssertLessThan(finalWidgetProcessStop.lowerBound, registration.lowerBound)
         XCTAssertLessThan(sourceIsolation.lowerBound, registration.lowerBound)
         XCTAssertLessThan(installedValidation.lowerBound, registration.lowerBound)
         XCTAssertEqual(
             exactLineCount("unregister_transient_app \"$source_app\"", in: String(installFunction)),
             2
         )
+        XCTAssertEqual(
+            exactLineCount("if ! stop_running_sitright_processes; then", in: String(installFunction)),
+            1
+        )
+        XCTAssertEqual(
+            exactLineCount("if ! terminate_running_widget_extension; then", in: String(installFunction)),
+            1
+        )
 
         let rollbackFunction = try function(named: "rollback_installation_transaction", in: buildScript)
         XCTAssertTrue(rollbackFunction.contains("register_installed_app \"$INSTALL_APP_PATH\" || return 1"))
+        XCTAssertTrue(rollbackFunction.contains("if ! stop_running_sitright_processes; then"))
+        let rollbackStop = try XCTUnwrap(
+            rollbackFunction.range(of: "stop_running_sitright_processes")
+        )
+        let rollbackReplacement = try XCTUnwrap(
+            rollbackFunction.range(of: "rm -rf \"$INSTALL_APP_PATH\"")
+        )
+        XCTAssertLessThan(rollbackStop.lowerBound, rollbackReplacement.lowerBound)
         XCTAssertFalse(buildScript.contains("rm -rf \"$install_app\""))
+        XCTAssertFalse(buildScript.contains("/usr/bin/pkill"))
+    }
+
+    func testWidgetTerminationIsAbsentSafeAndRejectsProcessesThatRemainActive() throws {
+        let buildScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Scripts/build_app.sh"),
+            encoding: .utf8
+        )
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SitRightWidgetStop-\(UUID().uuidString)", isDirectory: true)
+        let fakeKillall = temporaryDirectory.appendingPathComponent("killall")
+        let stateFile = temporaryDirectory.appendingPathComponent("state")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        let fakeKillallScript = """
+        #!/bin/bash
+        set -eu
+        mode="${FAKE_KILLALL_MODE:?}"
+        state_file="${FAKE_KILLALL_STATE:?}"
+        query_file="${state_file}.queries"
+
+        if [[ " $* " == *" -s "* ]]; then
+          query_count=0
+          [ ! -f "$query_file" ] || query_count="$(cat "$query_file")"
+          query_count=$((query_count + 1))
+          printf '%s\n' "$query_count" >"$query_file"
+          case "$mode" in
+            absent)
+              exit 1
+              ;;
+            probe-error)
+              exit 2
+              ;;
+            delayed-success)
+              if [ "$query_count" -ge 7 ]; then
+                printf 'stopped\n' >"$state_file"
+              fi
+              ;;
+          esac
+          [ "$(cat "$state_file")" = "running" ]
+          exit $?
+        fi
+
+        if [[ " $* " == *" -TERM "* ]]; then
+          case "$mode" in
+            success)
+              printf 'stopped\n' >"$state_file"
+              exit 0
+              ;;
+            stubborn | delayed-success)
+              exit 0
+              ;;
+            term-failure)
+              exit 1
+              ;;
+          esac
+        fi
+        exit 2
+        """
+        try Data(fakeKillallScript.utf8).write(to: fakeKillall)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeKillall.path
+        )
+
+        let runner = """
+        set -euo pipefail
+        KILLALL="$1"
+        WIDGET_PROCESS_NAME="SitRightWidgetExtension"
+        SITRIGHT_PROCESS_STOP_POLL_INTERVAL=0
+        export FAKE_KILLALL_MODE="$2"
+        export FAKE_KILLALL_STATE="$3"
+        \(try function(named: "terminate_running_named_process", in: buildScript))
+        \(try function(named: "terminate_running_widget_extension", in: buildScript))
+        terminate_running_widget_extension
+        """
+
+        for (mode, expectedStatus) in [
+            ("absent", Int32(0)),
+            ("success", Int32(0)),
+            ("delayed-success", Int32(0)),
+            ("stubborn", Int32(1)),
+            ("term-failure", Int32(1)),
+            ("probe-error", Int32(1))
+        ] {
+            try Data("running\n".utf8).write(to: stateFile)
+            try? FileManager.default.removeItem(
+                at: URL(fileURLWithPath: stateFile.path + ".queries")
+            )
+            XCTAssertEqual(
+                try bashExitStatus(
+                    script: runner,
+                    arguments: [fakeKillall.path, mode, stateFile.path]
+                ),
+                expectedStatus,
+                "Unexpected Widget termination result for mode \(mode)"
+            )
+        }
     }
 
     func testDMGPackagingBuildsAndRejectsBrokenAppGroupArtifactsBeforeCreatingImage() throws {
@@ -1662,6 +1795,7 @@ final class PackagingContractTests: XCTestCase {
         INSTALL_TRANSACTION_ACTIVE=1
         unregister_transient_app() { :; }
         register_installed_app() { :; }
+        stop_running_sitright_processes() { :; }
         \(try function(named: "write_install_transaction_state", in: buildScript))
         \(try function(named: "rollback_installation_transaction", in: buildScript))
         rollback_installation_transaction
@@ -1678,6 +1812,64 @@ final class PackagingContractTests: XCTestCase {
             "old-app"
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: transactionDirectory.path))
+    }
+
+    func testInterruptedApplicationInstallPreservesTransactionWhenProcessesCannotStop() throws {
+        let buildScript = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Scripts/build_app.sh"),
+            encoding: .utf8
+        )
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SitRightBlockedRecovery-\(UUID().uuidString)", isDirectory: true)
+        let installApp = temporaryDirectory.appendingPathComponent("SitRight.app", isDirectory: true)
+        let transactionDirectory = temporaryDirectory
+            .appendingPathComponent(".SitRightInstallTransaction", isDirectory: true)
+        let previousApp = transactionDirectory
+            .appendingPathComponent("PreviousSitRight.app", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: installApp,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: previousApp,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+        }
+
+        try Data("new-app".utf8).write(to: installApp.appendingPathComponent("marker"))
+        try Data("old-app".utf8).write(to: previousApp.appendingPathComponent("marker"))
+        try Data().write(to: transactionDirectory.appendingPathComponent("had-previous-app"))
+        try Data("installed\n".utf8).write(
+            to: transactionDirectory.appendingPathComponent("state")
+        )
+
+        let runner = """
+        set -euo pipefail
+        INSTALL_APP_PATH="$1/SitRight.app"
+        INSTALL_TRANSACTION_DIR="$1/.SitRightInstallTransaction"
+        INSTALL_TRANSACTION_ACTIVE=1
+        unregister_transient_app() { :; }
+        register_installed_app() { :; }
+        stop_running_sitright_processes() { return 1; }
+        \(try function(named: "write_install_transaction_state", in: buildScript))
+        \(try function(named: "rollback_installation_transaction", in: buildScript))
+        rollback_installation_transaction
+        """
+        XCTAssertNotEqual(
+            try bashExitStatus(script: runner, arguments: [temporaryDirectory.path]),
+            0
+        )
+        XCTAssertEqual(
+            try String(
+                contentsOf: installApp.appendingPathComponent("marker"),
+                encoding: .utf8
+            ),
+            "new-app"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: transactionDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: previousApp.path))
     }
 
     private func plist(at relativePath: String) throws -> [String: Any] {

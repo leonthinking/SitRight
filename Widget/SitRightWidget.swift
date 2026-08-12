@@ -279,7 +279,6 @@ private struct HeatmapView: View {
                 for weekIndex in presentation.weeks.indices {
                     for dayIndex in 0..<7 {
                         let cell = presentation.weeks[weekIndex].cells[dayIndex]
-                        guard cell.state != .padding else { continue }
 
                         let rect = CGRect(
                             x: originX + CGFloat(weekIndex) * step,
@@ -355,8 +354,10 @@ private struct HeatmapView: View {
 
     private func fillColor(for state: HeatmapCellState) -> Color? {
         switch state {
-        case .padding, .neutral:
+        case .neutral:
             nil
+        case .padding, .future:
+            Color.secondary.opacity(0.08)
         case .inactive:
             Color.secondary.opacity(0.14)
         case let .activity(intensity):
@@ -368,7 +369,7 @@ private struct HeatmapView: View {
         switch state {
         case .activity:
             Color.primary.opacity(0.82)
-        case .padding, .inactive, .neutral:
+        case .padding, .future, .inactive, .neutral:
             Color.green
         }
     }

@@ -32,7 +32,7 @@ If the Xcode project needs to change, update `project.yml`, then regenerate thro
 - `Sources/Models/`: app settings and daily stats model aliases.
 - `Sources/Shared/`: types and storage used by both the main app and widget extension.
 - `Sources/Views/`: menu bar panel, settings, today view, popup, ring, and status label UI.
-- `Widget/`: WidgetKit configuration, timeline provider, and the display-only medium/large widget UI.
+- `Widget/`: WidgetKit configuration, timeline provider, and the display-only large quarterly widget UI.
 - `AppBundle/` and `WidgetBundle/`: Info.plist and entitlement files.
 - `Tests/`: focused XCTest coverage for settings, reminder scheduling/state, stats, activity-history recovery/concurrency, time formatting, and widget snapshot behavior.
 - `Assets.xcassets/`: app icon assets.

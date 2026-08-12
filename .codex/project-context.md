@@ -16,7 +16,7 @@ Current first-version capabilities include:
 - Workday, work-hour, and lunch-break scheduling.
 - Daily reminder-completion target, reminder response rate, manual activity count, and legacy unclassified history.
 - Launch-at-login toggle.
-- Display-only WidgetKit desktop widgets for today progress, reminder state, and 90-day or 365-day activity history.
+- A display-only WidgetKit desktop widget for today progress, reminder state, and rolling 90-day activity history.
 
 The app is intentionally lightweight and local-first. There is no backend service in this repository.
 
@@ -29,7 +29,7 @@ The app is intentionally lightweight and local-first. There is no backend servic
   - `SitRight` app target.
   - `SitRightWidgetExtension` app-extension target.
   - `SitRightTests` unit-test bundle.
-- `Scripts/build_app.sh` runs XcodeGen, builds Release through `xcodebuild`, stages the app, signs Sparkle's XPC/Updater/Autoupdate/Framework in nested order before the Widget and App, verifies signatures, copies to `build/SitRight.app`, and removes derived data unless `SITRIGHT_KEEP_DERIVED_DATA=1`.
+- `Scripts/build_app.sh` runs XcodeGen, builds Release through `xcodebuild`, stages the app, signs Sparkle's XPC/Updater/Autoupdate/Framework in nested order before the Widget and App, verifies signatures, copies to `build/SitRight.app`, and removes derived data unless `SITRIGHT_KEEP_DERIVED_DATA=1`. When installation is explicitly enabled, it removes all noncanonical physical registrations, moves the build source into the recoverable transaction under a non-App suffix, and requires three consecutive unique observations of the canonical Applications Widget before committing. The ordinary non-install build retains `build/SitRight.app`, marks `build/` as excluded from metadata indexing, and deregisters transient products so a local candidate does not silently replace the installed Widget during discovery.
 - `Scripts/package_dmg.sh` serializes against the app build flow, rebuilds the Release app without installing it, and requires matching TeamIdentifier/App Group contracts for the App and Widget plus the same TeamIdentifier across all Sparkle components. It creates a draggable compressed HFS+ candidate DMG whose top level contains only `SitRight.app` and `Applications`, verifies the image, read-only mounted contents, mounted signatures, and checksum, then publishes the DMG and `.sha256` pair without overwriting an existing valid pair on pre-publication failure.
 - `Scripts/package_update.sh` prepares but never uploads a signed community-update DMG, app-only ZIP, signed appcast, and SHA-256 manifest from a `git archive` snapshot of the captured committed arm64 candidate; it snapshots Release Notes, downloads the fixed Sparkle 2.9.2 official tool archive with its pinned SwiftPM checksum, binds individual tool hashes into the manifest, and rechecks the source tree before promoting assets. `Scripts/publish_update_release.sh` is a separate confirmation-gated GitHub operation pinned to `leonthinking/SitRight`; it snapshots all upload assets and Release Notes, independently reacquires and verifies the same Sparkle tools, requires an authenticated `gh`, a matching pushed tag, an increasing build number relative to GitHub's actual `latest` Release, complete reverified assets, and uses a verified Draft before the final non-Prerelease publication step.
 - The standalone DMG script does not notarize or staple its output, so its ordinary output remains an internal-test artifact. A versioned image produced through the explicitly authorized community-release flow may be published for manual GitHub download, but it is still not Developer ID signed, notarized, stapled, or Gatekeeper-trusted.
@@ -145,10 +145,13 @@ The App and Widget must agree on shared model encoding. Treat changes to shared 
 The widget code lives in `Widget/`.
 
 - `SitRightWidgetProvider` loads `WidgetSnapshot` and `ActivityHistory`.
-- The existing annual widget keeps its stable kind and supports `.systemMedium` and `.systemLarge`.
-- A separate rolling 90-day widget supports `.systemLarge` only.
-- Both widgets are display-only and show the daily goal, reminder completions, qualified proactive activity, week/streak statistics, current reminder status, and qualified-activity heatmaps.
-- `WidgetSyncController` writes only when Widget-relevant snapshot fields change, then reloads both Widget kinds.
+- The only registered Widget is the rolling 90-day `SitRightQuarterActivityWidget`, which supports `.systemLarge` only.
+- The retired annual identity `SitRightActivityWidget` remains reserved in source but is not registered or reloaded. Existing annual placements cannot migrate to the quarterly kind and must be removed by the user.
+- The quarterly Widget is display-only and shows the daily goal, reminder completions, qualified proactive activity, week/streak statistics, current reminder status, and a qualified-activity heatmap.
+- Heatmap intensity represents each day's progress against its persisted daily-target snapshot: below 25%, 25–49%, 50–99%, and at least 100%. A positive legacy day without a target snapshot uses only the lowest intensity rather than inferring historical completion from today's target.
+- The quarterly Widget shows localized month markers and a completion legend using the original compact square-cell layout.
+- Leading padding before the rolling 90-day range and the remaining future weekdays through the end of today's calendar week use matching non-statistical decorative-gray placeholders, keeping both outer weeks visually complete and symmetric. Their fill is deliberately lighter than a real inactive day so they do not imply missed activity. These decorative cells have no date and never enter activity totals, active/completed days, streaks, month markers, persistence, or accessibility summaries. Today is outlined. Inactive paused/non-workdays use a neutral outline. Dates without eligibility/history remain visually indistinguishable from ordinary inactive dates because no first-tracked date is persisted.
+- `WidgetSyncController` writes only when Widget-relevant snapshot fields change, then reloads the quarterly Widget kind.
 
 Widget behavior depends on matching:
 

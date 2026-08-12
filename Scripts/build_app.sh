@@ -16,9 +16,12 @@ STAGING_DIR="$(mktemp -d "$DERIVED_DATA_PATH/Signed.XXXXXX")"
 STAGED_APP_PATH="$STAGING_DIR/SitRight.app"
 WIDGET_PATH="$STAGED_APP_PATH/Contents/PlugIns/SitRightWidgetExtension.appex"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
+PLUGINKIT="/usr/bin/pluginkit"
 APP_GROUP_IDENTIFIER="973KFG9CL9.com.leon.SitRight"
 EXPECTED_TEAM_IDENTIFIER="${APP_GROUP_IDENTIFIER%%.*}"
 WIDGET_BUNDLE_IDENTIFIER="com.leon.SitRight.SitRightWidgetExtension"
+WIDGET_PROCESS_NAME="SitRightWidgetExtension"
+KILLALL="${SITRIGHT_KILLALL_PATH:-/usr/bin/killall}"
 SITRIGHT_LICENSE_SOURCE="$ROOT_DIR/Sources/Resources/SitRight-License.txt"
 THIRD_PARTY_NOTICES_SOURCE="$ROOT_DIR/Sources/Resources/Third-Party-Notices.txt"
 BUILD_OUTPUT_STAGING_DIR=""
@@ -90,8 +93,131 @@ unregister_transient_app() {
   local app_path="$1"
   local appex_path="$app_path/Contents/PlugIns/SitRightWidgetExtension.appex"
 
-  [ -e "$appex_path" ] && /usr/bin/pluginkit -r "$appex_path" 2>/dev/null || true
+  [ -e "$appex_path" ] && "$PLUGINKIT" -r "$appex_path" 2>/dev/null || true
   [ -e "$app_path" ] && "$LSREGISTER" -u "$app_path" 2>/dev/null || true
+}
+
+terminate_running_named_process() {
+  local process_name="$1"
+  local process_label="$2"
+  local attempt
+  local probe_status
+
+  if "$KILLALL" -s "$process_name" >/dev/null 2>&1; then
+    probe_status=0
+  else
+    probe_status=$?
+  fi
+  case "$probe_status" in
+    0)
+      ;;
+    1)
+      return 0
+      ;;
+    *)
+      echo "Failed to inspect the running $process_label process" >&2
+      return 1
+      ;;
+  esac
+
+  if ! "$KILLALL" -q -TERM "$process_name" >/dev/null 2>&1; then
+    if "$KILLALL" -s "$process_name" >/dev/null 2>&1; then
+      probe_status=0
+    else
+      probe_status=$?
+    fi
+    case "$probe_status" in
+      1)
+        return 0
+        ;;
+      0)
+        echo "Failed to terminate the running $process_label process" >&2
+        return 1
+        ;;
+      *)
+        echo "Failed to inspect the running $process_label process" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  for attempt in 1 2 3 4 5; do
+    if "$KILLALL" -s "$process_name" >/dev/null 2>&1; then
+      probe_status=0
+    else
+      probe_status=$?
+    fi
+    case "$probe_status" in
+      1)
+        return 0
+        ;;
+      0)
+        ;;
+      *)
+        echo "Failed to inspect the running $process_label process" >&2
+        return 1
+        ;;
+    esac
+    /bin/sleep "${SITRIGHT_PROCESS_STOP_POLL_INTERVAL:-0.2}"
+  done
+
+  if "$KILLALL" -s "$process_name" >/dev/null 2>&1; then
+    probe_status=0
+  else
+    probe_status=$?
+  fi
+  case "$probe_status" in
+    1)
+      return 0
+      ;;
+    0)
+      echo "$process_label remained active after termination" >&2
+      return 1
+      ;;
+    *)
+      echo "Failed to inspect the running $process_label process" >&2
+      return 1
+      ;;
+  esac
+}
+
+terminate_running_main_app() {
+  terminate_running_named_process "SitRight" "SitRight app"
+}
+
+terminate_running_widget_extension() {
+  terminate_running_named_process "$WIDGET_PROCESS_NAME" "SitRight Widget extension"
+}
+
+stop_running_sitright_processes() {
+  if ! terminate_running_main_app; then
+    return 1
+  fi
+  terminate_running_widget_extension
+}
+
+unregister_competing_widget_registrations() {
+  local keep_widget="$1"
+  local registration
+  local registration_line
+  local registered_widget
+  local registered_app
+
+  registration="$("$PLUGINKIT" -m -A -D -v -i "$WIDGET_BUNDLE_IDENTIFIER" 2>/dev/null || true)"
+  while IFS= read -r registration_line; do
+    registered_widget="$(
+      /usr/bin/printf '%s\n' "$registration_line" |
+        /usr/bin/sed -nE 's|^.*[[:space:]](/.*\.appex)$|\1|p'
+    )"
+    case "$registered_widget" in
+      /*/Contents/PlugIns/SitRightWidgetExtension.appex)
+        [ "$registered_widget" = "$keep_widget" ] && continue
+        "$PLUGINKIT" -r "$registered_widget" 2>/dev/null || true
+        registered_app="${registered_widget%/Contents/PlugIns/SitRightWidgetExtension.appex}"
+        "$LSREGISTER" -u "$registered_app" 2>/dev/null || true
+        ;;
+    esac
+  done <<<"$registration"
 }
 
 validate_entitlements_xml() {
@@ -340,18 +466,25 @@ register_installed_app() {
   local registration
   local registered_path_count
   local expected_path_count
+  local stable_registration_count=0
 
-  /usr/bin/pluginkit -a "$install_widget" || return 1
+  unregister_competing_widget_registrations "$install_widget"
+  "$PLUGINKIT" -a "$install_widget" || return 1
   "$LSREGISTER" -f -R -trusted "$install_app" || return 1
 
-  for attempt in 1 2 3 4 5; do
-    registration="$(/usr/bin/pluginkit -m -A -v -i "$WIDGET_BUNDLE_IDENTIFIER" 2>/dev/null || true)"
+  for attempt in 1 2 3 4 5 6 7 8; do
+    registration="$("$PLUGINKIT" -m -A -D -v -i "$WIDGET_BUNDLE_IDENTIFIER" 2>/dev/null || true)"
     registered_path_count="$(/usr/bin/grep -Ec '/.*\.appex$' <<<"$registration" || true)"
     expected_path_count="$(/usr/bin/grep -Fc "$install_widget" <<<"$registration" || true)"
     if [ "$registered_path_count" = "1" ] && [ "$expected_path_count" = "1" ]; then
-      return 0
+      stable_registration_count=$((stable_registration_count + 1))
+      if [ "$stable_registration_count" = "3" ]; then
+        return 0
+      fi
+    else
+      stable_registration_count=0
     fi
-    /bin/sleep 1
+    /bin/sleep "${SITRIGHT_WIDGET_REGISTRATION_POLL_INTERVAL:-1}"
   done
 
   echo "Widget registration did not resolve uniquely to $install_widget" >&2
@@ -391,6 +524,12 @@ rollback_installation_transaction() {
       return 1
       ;;
   esac
+
+  unregister_transient_app "$INSTALL_APP_PATH"
+  if ! stop_running_sitright_processes; then
+    echo "Cannot restore the previous SitRight installation while its processes remain active" >&2
+    return 1
+  fi
 
   if [ -e "$INSTALL_TRANSACTION_DIR/had-previous-app" ]; then
     had_previous=1
@@ -498,6 +637,9 @@ publish_built_app() {
 
   target_parent="$(dirname "$target_app")"
   mkdir -p "$target_parent"
+  if [ "$target_parent" = "$ROOT_DIR/build" ]; then
+    /usr/bin/touch "$target_parent/.metadata_never_index"
+  fi
   BUILD_OUTPUT_STAGING_DIR="$(mktemp -d "$target_parent/.SitRightBuildOutput.XXXXXX")"
   candidate_app="$BUILD_OUTPUT_STAGING_DIR/SitRight.app"
   BUILD_OUTPUT_TARGET_APP="$target_app"
@@ -525,6 +667,7 @@ install_to_applications() {
   local install_app="$2"
   local candidate_app
   local previous_app
+  local isolated_source_app
 
   # Validate the source before stopping or replacing the working installation.
   # An ad-hoc signature may contain the App Group entitlement string while the
@@ -536,6 +679,7 @@ install_to_applications() {
   INSTALL_TRANSACTION_ACTIVE=1
   candidate_app="$INSTALL_TRANSACTION_DIR/SitRight.app"
   previous_app="$INSTALL_TRANSACTION_DIR/PreviousSitRight.app"
+  isolated_source_app="$INSTALL_TRANSACTION_DIR/SourceSitRight.app.disabled"
 
   if ! prepare_install_candidate "$source_app" "$candidate_app"; then
     echo "Failed to prepare a verified SitRight installation candidate" >&2
@@ -548,8 +692,14 @@ install_to_applications() {
   write_install_transaction_state "replacing"
 
   unregister_transient_app "$source_app"
-  /usr/bin/pkill -x SitRight 2>/dev/null || true
   unregister_transient_app "$install_app"
+  if ! stop_running_sitright_processes; then
+    echo "SitRight installation failed while stopping the previous App and Widget processes" >&2
+    if ! rollback_installation_transaction; then
+      echo "Automatic rollback failed; preserved installation files in $INSTALL_TRANSACTION_DIR" >&2
+    fi
+    return 1
+  fi
 
   if [ -e "$install_app" ]; then
     mv "$install_app" "$previous_app" || return 1
@@ -558,8 +708,36 @@ install_to_applications() {
 
   mv "$candidate_app" "$install_app" || return 1
   write_install_transaction_state "installed"
-  if ! verify_installable_app "$install_app" "Installed" ||
-    ! register_installed_app "$install_app"; then
+  if ! verify_installable_app "$install_app" "Installed"; then
+    echo "SitRight installation failed; restoring the previous installation" >&2
+    if ! rollback_installation_transaction; then
+      echo "Automatic rollback failed; preserved installation files in $INSTALL_TRANSACTION_DIR" >&2
+      return 1
+    fi
+    return 1
+  fi
+
+  # Xcode and Spotlight can rediscover the published build copy after the
+  # earlier cleanup. Remove that transient registration immediately before
+  # registering the canonical /Applications copy so WidgetKit does not keep
+  # loading a build or recovery artifact with the same extension identifier.
+  unregister_transient_app "$source_app"
+  if ! mv "$source_app" "$isolated_source_app"; then
+    echo "SitRight installation failed; restoring the previous installation" >&2
+    if ! rollback_installation_transaction; then
+      echo "Automatic rollback failed; preserved installation files in $INSTALL_TRANSACTION_DIR" >&2
+      return 1
+    fi
+    return 1
+  fi
+  if ! terminate_running_widget_extension; then
+    echo "SitRight installation failed while confirming the new Widget extension lifecycle" >&2
+    if ! rollback_installation_transaction; then
+      echo "Automatic rollback failed; preserved installation files in $INSTALL_TRANSACTION_DIR" >&2
+    fi
+    return 1
+  fi
+  if ! register_installed_app "$install_app"; then
     echo "SitRight installation failed; restoring the previous installation" >&2
     if ! rollback_installation_transaction; then
       echo "Automatic rollback failed; preserved installation files in $INSTALL_TRANSACTION_DIR" >&2
@@ -574,6 +752,79 @@ install_to_applications() {
 }
 
 cd "$ROOT_DIR"
+
+normalize_absolute_path_lexically() {
+  local path="$1"
+  local component
+  local index
+  local normalized=""
+  local -a components
+  local -a resolved_components
+
+  case "$path" in
+    /*) ;;
+    *) path="$PWD/$path" ;;
+  esac
+
+  IFS='/' read -r -a components <<<"$path"
+  resolved_components=()
+  for component in "${components[@]}"; do
+    case "$component" in
+      ""|.) ;;
+      ..)
+        if [ "${#resolved_components[@]}" -gt 0 ]; then
+          index=$((${#resolved_components[@]} - 1))
+          unset 'resolved_components[index]'
+        fi
+        ;;
+      *) resolved_components+=("$component") ;;
+    esac
+  done
+
+  for component in "${resolved_components[@]}"; do
+    normalized="$normalized/$component"
+  done
+  /usr/bin/printf '%s\n' "${normalized:-/}"
+}
+
+canonical_path_allowing_missing() {
+  local normalized
+  local parent
+  local suffix=""
+  local component
+  local name
+
+  normalized="$(normalize_absolute_path_lexically "$1")"
+  parent="$(dirname "$normalized")"
+  name="$(basename "$normalized")"
+  while [ ! -d "$parent" ] && [ "$parent" != "/" ]; do
+    component="$(basename "$parent")"
+    suffix="/$component$suffix"
+    parent="$(dirname "$parent")"
+  done
+  if [ -d "$parent" ]; then
+    parent="$(cd "$parent" && pwd -P)"
+  fi
+  /usr/bin/printf '%s%s/%s\n' "${parent%/}" "$suffix" "$name"
+}
+
+path_has_parent_traversal() {
+  case "/$1/" in
+    */../*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ "${SITRIGHT_INSTALL_TO_APPLICATIONS:-0}" = "1" ] && path_has_parent_traversal "$APP_PATH"; then
+  echo "SITRIGHT_OUTPUT_APP_PATH must not contain parent-directory traversal when installation is enabled" >&2
+  exit 1
+fi
+
+if [ "${SITRIGHT_INSTALL_TO_APPLICATIONS:-0}" = "1" ] &&
+  [ "$(canonical_path_allowing_missing "$APP_PATH")" = "$(canonical_path_allowing_missing "$INSTALL_APP_PATH")" ]; then
+  echo "SITRIGHT_OUTPUT_APP_PATH must differ from $INSTALL_APP_PATH when installation is enabled" >&2
+  exit 1
+fi
 
 if [ "${SITRIGHT_INSTALL_TO_APPLICATIONS:-0}" = "1" ]; then
   recover_interrupted_installation
@@ -655,14 +906,15 @@ publish_built_app "$STAGED_APP_PATH" "$APP_PATH"
 verify_legal_resources "$APP_PATH" "Published SitRight.app"
 
 unregister_transient_app "$PRODUCTS_PATH/SitRight.app"
+unregister_transient_app "$APP_PATH"
 
 if [ "${SITRIGHT_INSTALL_TO_APPLICATIONS:-0}" = "1" ]; then
   install_to_applications "$APP_PATH" "$INSTALL_APP_PATH"
   echo "$INSTALL_APP_PATH"
+else
+  echo "$APP_PATH"
 fi
 
 if [ "${SITRIGHT_KEEP_DERIVED_DATA:-0}" = "1" ]; then
   echo "Kept DerivedData: $DERIVED_DATA_PATH" >&2
 fi
-
-echo "$APP_PATH"

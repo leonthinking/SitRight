@@ -196,7 +196,7 @@ No tracked tasks yet.
 - Goal: Add a separate large SitRight widget for the rolling last 90 days while preserving the existing annual widget identity and behavior.
 - Impacted areas: Shared Widget kinds and reloads, WidgetKit registration and heatmap presentation, regression coverage, README, project context, and the shared App/Widget build number.
 - Verification: `swift test` passed 120/120; `./Scripts/build_app.sh` completed with `** BUILD SUCCEEDED **`; strict App/Widget codesign, arm64 architecture, matching App Group entitlements, packaged binary kind strings, installed-build equality, and system plug-in registration passed. After installing build 6 and restarting Widget services, `chronod` reported two descriptors: the large-only `SitRightQuarterActivityWidget` and medium/large `SitRightActivityWidget`. Two independent adversarial reviews completed and the confirmed documentation findings were repaired.
-- Handoff notes: `SitRightActivityWidget` remains stable for existing annual widgets; `SitRightQuarterActivityWidget` is large-only and shares the existing snapshot/history formats. Build 6 is installed at `/Applications/SitRight.app`; the replaced build 5 is backed up at `build/SitRight-before-build6-20260723-093506.app`.
+- Handoff notes: `SitRightActivityWidget` remains stable for existing annual widgets; `SitRightQuarterActivityWidget` is large-only and shares the existing snapshot/history formats. The signed App/Widget pair was installed and verified; recovery evidence was retained only in local, ignored storage.
 
 ### TASK-20260718-status-popover-memory
 

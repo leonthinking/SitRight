@@ -10,14 +10,17 @@ enum SettingsPane: String {
 }
 
 enum SettingsPanePresentation {
-    static func title(for pane: SettingsPane) -> String {
+    static func title(
+        for pane: SettingsPane,
+        language: AppLanguage = .simplifiedChinese
+    ) -> String {
         switch SettingsSelection.visiblePane(for: pane) {
         case .general:
-            return "通用"
+            return language.text("通用", "General")
         case .notifications:
-            return "通知"
+            return language.text("通知", "Notifications")
         case .about:
-            return "关于"
+            return language.text("关于", "About")
         case .schedule:
             preconditionFailure("Visible settings panes must not resolve to Schedule")
         }
@@ -299,7 +302,7 @@ enum ReminderIntervalChoice: Hashable {
     }
 }
 
-enum TimePickerOptions {
+enum SettingsValuePickerOptions {
     static func values(
         in range: ClosedRange<Int>,
         step: Int,
@@ -318,6 +321,19 @@ enum TimePickerOptions {
             values.append(selection)
         }
         return Array(Set(values)).sorted()
+    }
+}
+
+enum SettingsValuePresentation {
+    static func dailyTarget(_ value: Int, language: AppLanguage) -> String {
+        language.text(
+            "\(value) 次",
+            value == 1 ? "1 time" : "\(value) times"
+        )
+    }
+
+    static func intervalMinutes(_ value: Int, language: AppLanguage) -> String {
+        language.text("\(value) 分钟", "\(value) minutes")
     }
 }
 
@@ -341,11 +357,16 @@ struct SettingsPanelView: View {
     @AccessibilityFocusState private var accessibilityFocusedSetting: SettingsFocusTarget?
 
     var body: some View {
+        content
+            .environment(\.locale, language.locale)
+    }
+
+    private var content: some View {
         TabView(selection: visiblePaneSelection) {
             generalPane
                 .tabItem {
                     Label(
-                        SettingsPanePresentation.title(for: .general),
+                        SettingsPanePresentation.title(for: .general, language: language),
                         systemImage: "gearshape"
                     )
                 }
@@ -354,7 +375,7 @@ struct SettingsPanelView: View {
             notificationsPane
                 .tabItem {
                     Label(
-                        SettingsPanePresentation.title(for: .notifications),
+                        SettingsPanePresentation.title(for: .notifications, language: language),
                         systemImage: "bell"
                     )
                 }
@@ -363,7 +384,7 @@ struct SettingsPanelView: View {
             aboutPane
                 .tabItem {
                     Label(
-                        SettingsPanePresentation.title(for: .about),
+                        SettingsPanePresentation.title(for: .about, language: language),
                         systemImage: "info.circle"
                     )
                 }
@@ -395,53 +416,77 @@ struct SettingsPanelView: View {
             migrateSelectedPaneIfNeeded()
         }
         .sheet(item: $presentedLegalNotice) { notice in
-            LegalNoticeSheet(notice: notice)
+            LegalNoticeSheet(notice: notice, language: language)
+                .environment(\.locale, language.locale)
         }
+    }
+
+    private var language: AppLanguage {
+        settingsStore.settings.language
     }
 
     private var generalPane: some View {
         ScrollViewReader { proxy in
             Form {
-                Section("提醒") {
-                    Toggle("启用提醒", isOn: binding(\.remindersEnabled))
+                Section(language.text("提醒", "Reminders")) {
+                    Toggle(language.text("启用提醒", "Enable reminders"), isOn: binding(\.remindersEnabled))
 
-                    Picker("提醒间隔", selection: intervalChoiceBinding) {
+                    SettingsValuePickerRow(
+                        title: language.text("提醒间隔", "Reminder interval"),
+                        selection: intervalChoiceBinding
+                    ) {
                         ForEach(ReminderIntervalChoice.presetMinutes, id: \.self) { minutes in
-                            Text("\(minutes) 分钟")
+                            Text(SettingsValuePresentation.intervalMinutes(minutes, language: language))
                                 .tag(ReminderIntervalChoice.preset(minutes))
                         }
                         Divider()
-                        Text("自定义…")
+                        Text(language.text("自定义…", "Custom…"))
                             .tag(ReminderIntervalChoice.custom)
                     }
 
                     if effectiveIntervalChoice == .custom {
-                        Stepper(
-                            "自定义间隔 \(settingsStore.settings.intervalMinutes) 分钟",
-                            value: binding(\.intervalMinutes),
-                            in: 5...240,
-                            step: 5
-                        )
+                        SettingsValuePickerRow(
+                            title: language.text("自定义间隔", "Custom interval"),
+                            selection: binding(\.intervalMinutes)
+                        ) {
+                            ForEach(
+                                SettingsValuePickerOptions.values(
+                                    in: 5...240,
+                                    step: 5,
+                                    including: settingsStore.settings.intervalMinutes
+                                ),
+                                id: \.self
+                            ) { minutes in
+                                Text(SettingsValuePresentation.intervalMinutes(minutes, language: language))
+                                    .tag(minutes)
+                            }
+                        }
                     }
 
-                    Stepper(
-                        "每日活动目标 \(settingsStore.settings.dailyTarget) 次",
-                        value: binding(\.dailyTarget),
-                        in: 1...24,
-                        step: 1
-                    )
+                    SettingsValuePickerRow(
+                        title: language.text("每日活动目标", "Daily activity goal"),
+                        selection: binding(\.dailyTarget)
+                    ) {
+                        ForEach(1...24, id: \.self) { target in
+                            Text(SettingsValuePresentation.dailyTarget(target, language: language))
+                                .tag(target)
+                        }
+                    }
 
                     if settingsStore.settings.dailyTarget > suggestedDailyMaximum {
                         StatusMessage(
-                            text: "当前日程大约可安排 \(suggestedDailyMaximum) 次活动提醒；目标仍可保留。",
+                            text: language.text(
+                                "当前日程大约可安排 \(suggestedDailyMaximum) 次活动提醒；目标仍可保留。",
+                                "Your schedule allows about \(suggestedDailyMaximum) activity reminders; you can still keep this goal."
+                            ),
                             systemImage: "info.circle",
                             color: .secondary
                         )
                     }
                 }
 
-                Section("工作时段") {
-                    Toggle("仅工作日提醒", isOn: binding(\.workdaysOnly))
+                Section(language.text("工作时段", "Work schedule")) {
+                    Toggle(language.text("仅工作日提醒", "Remind on workdays only"), isOn: binding(\.workdaysOnly))
                         .focused($focusedSetting, equals: .workdaysOnly)
                         .accessibilityFocused(
                             $accessibilityFocusedSetting,
@@ -449,13 +494,13 @@ struct SettingsPanelView: View {
                         )
 
                     TimePickerRow(
-                        title: "开始",
+                        title: language.text("开始", "Start"),
                         selection: binding(\.workStartMinutes),
                         range: 0...(23 * 60),
                         step: 30
                     )
                     TimePickerRow(
-                        title: "结束",
+                        title: language.text("结束", "End"),
                         selection: binding(\.workEndMinutes),
                         range: 60...(24 * 60),
                         step: 30
@@ -463,18 +508,18 @@ struct SettingsPanelView: View {
                 }
                 .id(SettingsSectionDestination.workSchedule)
 
-                Section("午休") {
-                    Toggle("午休自动暂停", isOn: binding(\.lunchPauseEnabled))
+                Section(language.text("午休", "Lunch break")) {
+                    Toggle(language.text("午休自动暂停", "Pause during lunch"), isOn: binding(\.lunchPauseEnabled))
 
                     if settingsStore.settings.lunchPauseEnabled {
                         TimePickerRow(
-                            title: "午休开始",
+                            title: language.text("午休开始", "Lunch starts"),
                             selection: binding(\.lunchStartMinutes),
                             range: lunchStartRange,
                             step: 30
                         )
                         TimePickerRow(
-                            title: "午休结束",
+                            title: language.text("午休结束", "Lunch ends"),
                             selection: binding(\.lunchEndMinutes),
                             range: lunchEndRange,
                             step: 30
@@ -482,13 +527,29 @@ struct SettingsPanelView: View {
                     }
                 }
 
-                Section("应用") {
-                    Toggle("状态栏显示倒计时", isOn: binding(\.menuBarCountdownEnabled))
+                Section(language.text("应用", "App")) {
+                    SettingsValuePickerRow(
+                        title: language.text("语言", "Language"),
+                        selection: binding(\.language)
+                    ) {
+                        ForEach(AppLanguage.allCases) { option in
+                            Text(option.displayName)
+                                .tag(option)
+                        }
+                    }
+
+                    Toggle(
+                        language.text("状态栏显示倒计时", "Show countdown in menu bar"),
+                        isOn: binding(\.menuBarCountdownEnabled)
+                    )
                     launchAtLoginToggle
                 }
 
-                Section("隐私") {
-                    Text("SitRight 不检测坐姿、真实运动或键鼠活动。活动记录只来自你主动完成的 60 秒引导。")
+                Section(language.text("隐私", "Privacy")) {
+                    Text(language.text(
+                        "SitRight 不检测坐姿、真实运动或键鼠活动。活动记录只来自你主动完成的 60 秒引导。",
+                        "SitRight does not monitor posture, physical movement, or keyboard and mouse activity. Activity is recorded only when you complete a 60-second guided break."
+                    ))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -497,7 +558,7 @@ struct SettingsPanelView: View {
                 if let error = settingsStore.lastErrorMessage {
                     Section {
                         StatusMessage(
-                            text: error,
+                            text: language.localizedRuntimeMessage(error),
                             systemImage: "exclamationmark.triangle.fill",
                             color: .orange
                         )
@@ -516,16 +577,19 @@ struct SettingsPanelView: View {
 
     private var notificationsPane: some View {
         Form {
-            Section("提醒方式") {
-                Toggle("强提醒弹窗", isOn: binding(\.popupEnabled))
-                Toggle("系统通知", isOn: binding(\.notificationsEnabled))
-                Toggle("通知声音", isOn: binding(\.soundEnabled))
+            Section(language.text("提醒方式", "Reminder methods")) {
+                Toggle(language.text("强提醒弹窗", "Persistent reminder window"), isOn: binding(\.popupEnabled))
+                Toggle(language.text("系统通知", "System notifications"), isOn: binding(\.notificationsEnabled))
+                Toggle(language.text("通知声音", "Notification sound"), isOn: binding(\.soundEnabled))
                     .disabled(!settingsStore.settings.notificationsEnabled)
 
                 if !settingsStore.settings.popupEnabled &&
                     !settingsStore.settings.notificationsEnabled {
                     StatusMessage(
-                        text: "两种提醒方式都已关闭；菜单栏仍会计时，但不会主动弹出提醒。",
+                        text: language.text(
+                            "两种提醒方式都已关闭；菜单栏仍会计时，但不会主动弹出提醒。",
+                            "Both reminder methods are off. The menu bar timer will continue, but SitRight will not actively alert you."
+                        ),
                         systemImage: "exclamationmark.triangle.fill",
                         color: .orange
                     )
@@ -533,7 +597,7 @@ struct SettingsPanelView: View {
             }
 
             if settingsStore.settings.notificationsEnabled {
-                Section("系统权限") {
+                Section(language.text("系统权限", "System permissions")) {
                     notificationStatus
                 }
             }
@@ -543,7 +607,7 @@ struct SettingsPanelView: View {
 
     private var aboutPane: some View {
         Form {
-            Section("SitRight 坐正") {
+            Section(language.text("SitRight 坐正", "SitRight")) {
                 HStack(spacing: 14) {
                     Image(nsImage: NSApplication.shared.applicationIconImage)
                         .resizable()
@@ -552,9 +616,9 @@ struct SettingsPanelView: View {
                         .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("SitRight 坐正")
+                        Text(language.text("SitRight 坐正", "SitRight"))
                             .font(.headline)
-                        Text(updateController.currentVersionText)
+                        Text(updateController.currentVersionText(language: language))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -562,9 +626,9 @@ struct SettingsPanelView: View {
                 .accessibilityElement(children: .combine)
             }
 
-            Section("版本更新") {
+            Section(language.text("版本更新", "Software updates")) {
                 Toggle(
-                    "自动检查更新",
+                    language.text("自动检查更新", "Automatically check for updates"),
                     isOn: Binding(
                         get: {
                             updateController.automaticallyChecksForUpdates
@@ -578,19 +642,19 @@ struct SettingsPanelView: View {
                 .disabled(!updateController.isConfigured)
 
                 StatusMessage(
-                    text: updateController.statusText,
+                    text: updateController.statusText(language: language),
                     systemImage: updateController.state.systemImage,
                     color: updateStatusColor
                 )
 
-                if let lastCheckText = updateController.lastCheckText {
+                if let lastCheckText = updateController.lastCheckText(language: language) {
                     Text(lastCheckText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 HStack {
-                    Button("检查更新…") {
+                    Button(language.text("检查更新…", "Check for Updates…")) {
                         updateController.checkForUpdates()
                     }
                     .disabled(!updateController.canCheckForUpdates)
@@ -598,23 +662,30 @@ struct SettingsPanelView: View {
                     Spacer()
 
                     SettingsExternalLink(
-                        title: "查看 GitHub Releases",
+                        title: language.text("查看 GitHub Releases", "View GitHub Releases"),
                         detail: "GitHub",
                         destination: UpdateConfiguration.releasesURL,
-                        accessibilityHint: "在浏览器中打开 SitRight GitHub Releases"
+                        accessibilityHint: language.text(
+                            "在浏览器中打开 SitRight GitHub Releases",
+                            "Open SitRight GitHub Releases in your browser"
+                        )
                     )
                 }
 
-                Text(
-                    "GitHub 社区预览版未经 Developer ID 公证；首次安装可能需要在系统设置中手动允许。"
-                )
+                Text(language.text(
+                    "GitHub 社区预览版未经 Developer ID 公证；首次安装可能需要在系统设置中手动允许。",
+                    "This GitHub community preview is not notarized with Developer ID. The first installation may need to be allowed manually in System Settings."
+                ))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("开源与社区") {
-                Text("提交使用问题、功能建议、安全报告或 Bug 时，需要 GitHub 账号。")
+            Section(language.text("开源与社区", "Open source and community")) {
+                Text(language.text(
+                    "提交使用问题、功能建议、安全报告或 Bug 时，需要 GitHub 账号。",
+                    "A GitHub account is required to request support, suggest features, report security issues, or file bugs."
+                ))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -623,72 +694,99 @@ struct SettingsPanelView: View {
                     presentedLegalNotice = .sitRight
                 } label: {
                     SettingsNavigationRow(
-                        title: "开源协议",
+                        title: language.text("开源协议", "Open-source license"),
                         detail: "MIT"
                     )
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("查看 SitRight 的 MIT 开源协议")
+                .accessibilityHint(language.text(
+                    "查看 SitRight 的 MIT 开源协议",
+                    "View SitRight's MIT License"
+                ))
 
                 SettingsExternalLink(
-                    title: "源代码",
+                    title: language.text("源代码", "Source code"),
                     detail: "GitHub",
                     destination: CommunityLinks.repositoryURL,
-                    accessibilityHint: "在浏览器中打开 SitRight 源代码"
+                    accessibilityHint: language.text(
+                        "在浏览器中打开 SitRight 源代码",
+                        "Open the SitRight source code in your browser"
+                    )
                 )
 
                 SettingsExternalLink(
-                    title: "给 SitRight 点个 Star 🌟",
+                    title: language.text("给 SitRight 点个 Star 🌟", "Star SitRight 🌟"),
                     detail: "GitHub",
                     destination: CommunityLinks.starURL,
-                    accessibilityHint: "在浏览器中打开 SitRight GitHub 仓库"
+                    accessibilityHint: language.text(
+                        "在浏览器中打开 SitRight GitHub 仓库",
+                        "Open the SitRight GitHub repository in your browser"
+                    )
                 )
 
                 SettingsExternalLink(
-                    title: "功能建议",
+                    title: language.text("功能建议", "Feature requests"),
                     detail: "GitHub",
                     destination: CommunityLinks.featureRequestURL,
-                    accessibilityHint: "在 GitHub 提交功能建议"
+                    accessibilityHint: language.text(
+                        "在 GitHub 提交功能建议",
+                        "Submit a feature request on GitHub"
+                    )
                 )
 
                 SettingsExternalLink(
-                    title: "报告问题",
+                    title: language.text("报告问题", "Report a bug"),
                     detail: "GitHub",
                     destination: CommunityLinks.bugReportURL,
-                    accessibilityHint: "在 GitHub 报告 SitRight 问题"
+                    accessibilityHint: language.text(
+                        "在 GitHub 报告 SitRight 问题",
+                        "Report a SitRight bug on GitHub"
+                    )
                 )
 
                 SettingsExternalLink(
-                    title: "使用帮助",
+                    title: language.text("使用帮助", "Support"),
                     detail: "GitHub",
                     destination: CommunityLinks.supportRequestURL,
-                    accessibilityHint: "在 GitHub 提交 SitRight 使用问题"
+                    accessibilityHint: language.text(
+                        "在 GitHub 提交 SitRight 使用问题",
+                        "Request SitRight support on GitHub"
+                    )
                 )
 
                 SettingsExternalLink(
-                    title: "隐私说明",
+                    title: language.text("隐私说明", "Privacy policy"),
                     detail: "GitHub",
                     destination: CommunityLinks.privacyURL,
-                    accessibilityHint: "在浏览器中查看 SitRight 隐私说明"
+                    accessibilityHint: language.text(
+                        "在浏览器中查看 SitRight 隐私说明",
+                        "Open the SitRight privacy policy in your browser"
+                    )
                 )
 
                 SettingsExternalLink(
-                    title: "安全问题",
-                    detail: "私密报告",
+                    title: language.text("安全问题", "Security"),
+                    detail: language.text("私密报告", "Private report"),
                     destination: CommunityLinks.securityReportURL,
-                    accessibilityHint: "在 GitHub 私密报告 SitRight 安全问题"
+                    accessibilityHint: language.text(
+                        "在 GitHub 私密报告 SitRight 安全问题",
+                        "Privately report a SitRight security issue on GitHub"
+                    )
                 )
 
                 Button {
                     presentedLegalNotice = .thirdParty
                 } label: {
                     SettingsNavigationRow(
-                        title: "第三方许可",
+                        title: language.text("第三方许可", "Third-party licenses"),
                         detail: "Sparkle 2.9.2"
                     )
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("查看 SitRight 使用的第三方软件许可")
+                .accessibilityHint(language.text(
+                    "查看 SitRight 使用的第三方软件许可",
+                    "View third-party software licenses used by SitRight"
+                ))
             }
         }
         .formStyle(.grouped)
@@ -748,7 +846,7 @@ struct SettingsPanelView: View {
 
     private var launchAtLoginToggle: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Toggle("登录时打开 SitRight", isOn: Binding(
+            Toggle(language.text("登录时打开 SitRight", "Open SitRight at login"), isOn: Binding(
                 get: { launchAtLoginController.isRegistered },
                 set: { isEnabled in
                     do {
@@ -767,14 +865,17 @@ struct SettingsPanelView: View {
             case .approvalRequired:
                 HStack(spacing: 8) {
                     StatusMessage(
-                        text: "需要在系统设置中允许",
+                        text: language.text(
+                            "需要在系统设置中允许",
+                            "Approval is required in System Settings"
+                        ),
                         systemImage: "exclamationmark.triangle.fill",
                         color: .orange
                     )
 
                     Spacer()
 
-                    Button("打开登录项…") {
+                    Button(language.text("打开登录项…", "Open Login Items…")) {
                         launchAtLoginController.openSystemSettingsLoginItems()
                     }
                     .buttonStyle(.link)
@@ -783,20 +884,23 @@ struct SettingsPanelView: View {
             case .serviceNotFound, .operationFailed:
                 VStack(alignment: .leading, spacing: 6) {
                     StatusMessage(
-                        text: launchAtLoginController.issue?.userMessage ??
-                            "macOS 暂时未能识别 SitRight 登录项",
+                        text: launchAtLoginController.issue?.userMessage(language: language) ??
+                            language.text(
+                                "macOS 暂时未能识别 SitRight 登录项",
+                                "macOS cannot currently recognize the SitRight login item"
+                            ),
                         systemImage: "exclamationmark.triangle.fill",
                         color: .orange
                     )
 
                     HStack(spacing: 12) {
-                        Button("重新检测") {
+                        Button(language.text("重新检测", "Check Again")) {
                             refreshLaunchAtLoginStatus()
                         }
                         .buttonStyle(.link)
                         .font(.caption)
 
-                        Button("打开登录项…") {
+                        Button(language.text("打开登录项…", "Open Login Items…")) {
                             launchAtLoginController.openSystemSettingsLoginItems()
                         }
                         .buttonStyle(.link)
@@ -820,7 +924,7 @@ struct SettingsPanelView: View {
             Spacer()
 
             if notificationManager.authorizationStatus == .denied {
-                Button("打开系统设置…") {
+                Button(language.text("打开系统设置…", "Open System Settings…")) {
                     openNotificationSettings()
                 }
                 .buttonStyle(.link)
@@ -836,13 +940,13 @@ struct SettingsPanelView: View {
 
         switch notificationManager.authorizationStatus {
         case .notDetermined:
-            return "等待系统授权"
+            return language.text("等待系统授权", "Waiting for system permission")
         case .denied:
-            return "系统通知权限已关闭"
+            return language.text("系统通知权限已关闭", "System notification permission is off")
         case .authorized, .provisional, .ephemeral:
-            return "系统通知可用"
+            return language.text("系统通知可用", "System notifications are available")
         @unknown default:
-            return "通知权限状态未知"
+            return language.text("通知权限状态未知", "Notification permission status is unknown")
         }
     }
 
@@ -1010,18 +1114,19 @@ struct LegalNoticeSheet: View {
     static let minimumContentSize = NSSize(width: 520, height: 460)
 
     let notice: LegalNotice
+    var language: AppLanguage = .simplifiedChinese
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(notice.title)
+                Text(notice.title(language: language))
                     .font(.title2.bold())
 
                 Spacer()
 
-                Button("完成") {
+                Button(language.text("完成", "Done")) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -1044,14 +1149,20 @@ struct LegalNoticeSheet: View {
                             .foregroundStyle(.secondary)
                             .accessibilityHidden(true)
 
-                        Text("无法读取许可文本")
+                        Text(language.text("无法读取许可文本", "Unable to load the license text"))
                             .font(.headline)
 
                         SettingsExternalLink(
-                            title: "在线查看\(notice.title)",
+                            title: language.text(
+                                "在线查看\(notice.title(language: language))",
+                                "View \(notice.title(language: language)) online"
+                            ),
                             detail: "GitHub",
                             destination: notice.fallbackURL,
-                            accessibilityHint: "在浏览器中打开\(notice.title)"
+                            accessibilityHint: language.text(
+                                "在浏览器中打开\(notice.title(language: language))",
+                                "Open \(notice.title(language: language)) in your browser"
+                            )
                         )
                     }
                     .frame(maxWidth: .infinity, minHeight: 300)
@@ -1070,6 +1181,34 @@ struct LegalNoticeSheet: View {
     }
 }
 
+private struct SettingsValuePickerRow<Selection: Hashable, Options: View>: View {
+    let title: String
+    @Binding var selection: Selection
+    private let options: Options
+
+    init(
+        title: String,
+        selection: Binding<Selection>,
+        @ViewBuilder options: () -> Options
+    ) {
+        self.title = title
+        _selection = selection
+        self.options = options()
+    }
+
+    var body: some View {
+        LabeledContent(title) {
+            Picker(title, selection: $selection) {
+                options
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityLabel(title)
+        }
+    }
+}
+
 private struct TimePickerRow: View {
     let title: String
     @Binding var selection: Int
@@ -1077,22 +1216,18 @@ private struct TimePickerRow: View {
     let step: Int
 
     var body: some View {
-        LabeledContent(title) {
-            Picker(title, selection: $selection) {
-                ForEach(
-                    TimePickerOptions.values(
-                        in: range,
-                        step: step,
-                        including: selection
-                    ),
-                    id: \.self
-                ) { minutes in
-                    Text(TimeFormatting.clockText(for: minutes))
-                        .tag(minutes)
-                }
+        SettingsValuePickerRow(title: title, selection: $selection) {
+            ForEach(
+                SettingsValuePickerOptions.values(
+                    in: range,
+                    step: step,
+                    including: selection
+                ),
+                id: \.self
+            ) { minutes in
+                Text(TimeFormatting.clockText(for: minutes))
+                    .tag(minutes)
             }
-            .labelsHidden()
-            .frame(width: 118)
         }
     }
 }

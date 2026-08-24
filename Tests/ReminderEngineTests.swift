@@ -854,6 +854,61 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.engine.phase, .accumulating)
     }
 
+    func testLanguageChangeUpdatesCopyAndWidgetWithoutResettingCadence() throws {
+        let harness = makeHarness()
+        defer { harness.cleanup() }
+        harness.start()
+        harness.advance(by: 2 * 60)
+        let accumulated = harness.engine.accumulatedEligibleSeconds
+        let nextReminderAt = try XCTUnwrap(harness.engine.nextReminderAt)
+        let phase = harness.engine.phase
+        let today = harness.statsStore.today
+
+        harness.settingsStore.update { $0.language = .english }
+
+        XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, accumulated)
+        XCTAssertEqual(harness.engine.nextReminderAt, nextReminderAt)
+        XCTAssertEqual(harness.engine.phase, phase)
+        XCTAssertEqual(harness.statsStore.today, today)
+        XCTAssertEqual(harness.engine.statusText, "Reminders are active")
+        XCTAssertEqual(harness.notificationManager.languages, [.english])
+        XCTAssertEqual(harness.presenter.languages, [.english])
+        XCTAssertEqual(
+            WidgetSnapshotStore.load(
+                storageDirectory: harness.storageDirectory
+            ).language,
+            .english
+        )
+    }
+
+    func testLanguageChangeRelocalizesActiveReminderGuideAndCelebration() throws {
+        let harness = makeHarness()
+        defer { harness.cleanup() }
+        try harness.triggerReminder()
+        let activeCycle = try XCTUnwrap(harness.engine.activeReminderCycle)
+
+        harness.settingsStore.update { $0.language = .english }
+
+        XCTAssertEqual(harness.engine.phase, .awaitingResponse)
+        XCTAssertEqual(harness.engine.activeReminderCycle?.id, activeCycle.id)
+        XCTAssertTrue(harness.engine.currentReminderText?.hasPrefix("It is time") == true)
+
+        harness.presenter.send(.completed)
+        XCTAssertEqual(harness.engine.phase, .guiding)
+        harness.settingsStore.update { $0.language = .simplifiedChinese }
+        XCTAssertEqual(
+            harness.engine.currentReminderText,
+            ReminderMessages.guide(language: .simplifiedChinese)
+        )
+
+        harness.advance(by: ReminderTiming.guidedActivityDuration)
+        XCTAssertNotNil(harness.engine.celebrationText)
+        harness.settingsStore.update { $0.language = .english }
+        XCTAssertTrue(harness.engine.celebrationText?.hasPrefix("Nice work") == true)
+        XCTAssertEqual(harness.statsStore.today.reminderCompletedCount, 1)
+        XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 1)
+    }
+
     func testNearEndOfScheduleDoesNotCreateOpportunityWithoutFullResponseWindow() throws {
         let base = try makeLocalDate(hour: 17, minute: 54)
         let harness = makeHarness(date: base) { settings in
@@ -980,6 +1035,7 @@ final class ReminderEngineTests: XCTestCase {
     private final class StubNotificationManager: ReminderNotificationManaging {
         private(set) var deliveredCount = 0
         private(set) var cancelledCycleIDs: [UUID] = []
+        private(set) var languages: [AppLanguage] = []
         private var results: [Bool]
         private var actionHandler: ((ReminderNotificationAction) -> Void)?
 
@@ -1016,6 +1072,10 @@ final class ReminderEngineTests: XCTestCase {
             cancelledCycleIDs.append(cycleID)
         }
 
+        func setLanguage(_ language: AppLanguage) {
+            languages.append(language)
+        }
+
         func setReminderActionHandler(_ handler: @escaping (ReminderNotificationAction) -> Void) {
             actionHandler = handler
         }
@@ -1030,6 +1090,7 @@ final class ReminderEngineTests: XCTestCase {
         private(set) var dismissedCount = 0
         private(set) var completionMessages: [String] = []
         private(set) var guideDeadlines: [Date] = []
+        private(set) var languages: [AppLanguage] = []
         private var handler: ((ReminderAction) -> Void)?
 
         func present(message: String, completion: @escaping (ReminderAction) -> Void) {
@@ -1053,6 +1114,10 @@ final class ReminderEngineTests: XCTestCase {
 
         func presentGuideCompletion(message: String) {
             completionMessages.append(message)
+        }
+
+        func setLanguage(_ language: AppLanguage) {
+            languages.append(language)
         }
 
         func send(_ action: ReminderAction) {

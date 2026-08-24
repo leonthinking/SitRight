@@ -18,12 +18,16 @@ enum ReminderAccessibility {
         statusText: String,
         countdownText: String,
         state: ReminderRunState,
-        showsCountdown: Bool
+        showsCountdown: Bool,
+        language: AppLanguage = .simplifiedChinese
     ) -> String {
         guard showsCountdown, case .running = state else {
             return statusText
         }
 
-        return "\(statusText)，剩余 \(countdownText)"
+        return language.text(
+            "\(statusText)，剩余 \(countdownText)",
+            "\(statusText), \(countdownText) remaining"
+        )
     }
 }

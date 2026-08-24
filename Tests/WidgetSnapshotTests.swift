@@ -15,7 +15,7 @@ final class WidgetSnapshotTests: XCTestCase {
         )
 
         XCTAssertTrue(widgetSource.contains("case .guiding:"))
-        XCTAssertTrue(widgetSource.contains("return \"活动进行中\""))
+        XCTAssertTrue(widgetSource.contains("return language.text(\"活动进行中\""))
         XCTAssertFalse(
             widgetSource.contains(
                 "guideEndsAt.timeIntervalSince(entry.date)"
@@ -129,6 +129,7 @@ final class WidgetSnapshotTests: XCTestCase {
         let decoded = try JSONDecoder().decode(WidgetSnapshot.self, from: data)
 
         XCTAssertEqual(decoded.state, .running)
+        XCTAssertEqual(decoded.language, .simplifiedChinese)
         XCTAssertEqual(decoded.intervalMinutes, 50)
         XCTAssertEqual(decoded.dailyTarget, 8)
         XCTAssertEqual(decoded.completedCount, 0)
@@ -140,6 +141,58 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertEqual(decoded.dailyGoalActivityCount, 0)
         XCTAssertNil(decoded.phase)
         XCTAssertNil(decoded.responseRate)
+    }
+
+    func testUnknownFutureWidgetLanguageFallsBackWithoutInvalidatingSnapshot() throws {
+        let data = Data(
+            #"{"updatedAt":0,"state":"running","language":"future-language","completedCount":3}"#.utf8
+        )
+
+        let decoded = try JSONDecoder().decode(WidgetSnapshot.self, from: data)
+
+        XCTAssertEqual(decoded.language, .simplifiedChinese)
+        XCTAssertEqual(decoded.completedCount, 3)
+    }
+
+    func testPublishingLanguageChangeRefreshesSharedSnapshot() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SitRightWidgetLanguageTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let controller = WidgetSyncController(
+            storageDirectory: directory,
+            reloadTimelines: false
+        )
+        var settings = AppSettings()
+        let stats = DailyStats(dateKey: "2026-08-24")
+
+        controller.publish(
+            settings: settings,
+            stats: stats,
+            nextReminderAt: nil,
+            state: .running,
+            statusText: "提醒进行中",
+            now: Date(timeIntervalSince1970: 0)
+        )
+        let snapshotURL = directory.appendingPathComponent(
+            WidgetSnapshotStore.fileName
+        )
+        let chineseData = try Data(contentsOf: snapshotURL)
+
+        settings.language = .english
+        controller.publish(
+            settings: settings,
+            stats: stats,
+            nextReminderAt: nil,
+            state: .running,
+            statusText: "Reminders are active",
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        XCTAssertNotEqual(try Data(contentsOf: snapshotURL), chineseData)
+        XCTAssertEqual(
+            WidgetSnapshotStore.load(storageDirectory: directory).language,
+            .english
+        )
     }
 
     func testUnknownFuturePhaseDoesNotInvalidateSnapshot() throws {

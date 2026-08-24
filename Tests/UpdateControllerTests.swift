@@ -37,6 +37,26 @@ final class UpdateControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testDevelopmentBuildVersionTextIsLocalizedWithoutMixedLanguage() {
+        let configuration = UpdateConfiguration(infoDictionary: [:])
+        let controller = UpdateController(
+            configuration: configuration,
+            startsUpdater: false
+        )
+
+        XCTAssertTrue(configuration.isDevelopmentBuild)
+        XCTAssertEqual(controller.currentVersionText, "开发版（—）")
+        XCTAssertEqual(
+            controller.currentVersionText(language: .english),
+            "Development build (—)"
+        )
+        XCTAssertFalse(
+            controller.currentVersionText(language: .english)
+                .contains("开发版")
+        )
+    }
+
+    @MainActor
     func testControllerStartsOnlyAfterExplicitApplicationLifecycleStart() {
         let controller = UpdateController(
             configuration: configuration(),

@@ -30,6 +30,22 @@ No tracked tasks yet.
 
 ## Done
 
+### TASK-20260824-settings-value-controls
+
+- Status: Done
+- Goal: Unify reminder interval, daily target, schedule times, and language as complete trailing value pickers so values and disclosure indicators remain visually grouped and right-aligned.
+- Impacted areas: General Settings presentation, localized value copy, option compatibility, accessibility, regression coverage, and packaged App visual acceptance.
+- Verification: `swift test --disable-sandbox` passed 271/271; `./Scripts/build_app.sh` passed and the transaction installer replaced `/Applications/SitRight.app` after verifying TeamIdentifier `973KFG9CL9` and the required App Group; `git diff --check` passed. Production-hosting coverage verified aligned picker edges, complete values, and no clipping in Simplified Chinese and English. The installed `0.2.8 (13)` Settings window was opened and visually checked: daily target displays the complete `10 次` value and all trailing picker controls align consistently. Two independent reviews found no remaining settings-compatibility, layout, keyboard, or accessibility issues.
+- Handoff notes: Existing settings storage, immediate persistence, legacy off-step time/interval selections, reminder behavior, fixed window width, and unrelated workspace changes are preserved. The generated Xcode project and build products remain untracked; `output/` was not modified. No version change, commit, push, tag, or Release was performed.
+
+### TASK-20260824-in-app-language
+
+- Status: Done
+- Goal: Add an in-app Simplified Chinese / English language preference that updates the app, reminders, notifications, and Widget without changing reminder or activity-history behavior.
+- Impacted areas: App settings compatibility, user-facing copy, notification categories, Widget snapshot/display, accessibility, README, project context, and regression coverage.
+- Verification: `swift test --disable-sandbox` passed 272/272; `./Scripts/build_app.sh` passed; both packaged targets contain valid English and Simplified Chinese string resources; `git diff --check` passed. Independent implementation and release reviews closed notification concurrency, locale, runtime copy, development-build version text, layout, and compatibility findings.
+- Handoff notes: Existing users remain on Simplified Chinese until they choose English. The additive language field tolerates missing and unknown values; changing it does not reset cadence or activity data. No app installation, version change, Git commit, push, or release was performed.
+
 ### TASK-20260812-heatmap-symmetric-edge-fill
 
 - Status: Done

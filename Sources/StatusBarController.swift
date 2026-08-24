@@ -73,8 +73,10 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         button.imageScaling = .scaleProportionallyDown
         button.target = self
         button.action = #selector(togglePopover)
-        button.toolTip = "SitRight 坐正"
-        button.setAccessibilityLabel("SitRight 坐正")
+        let language = container.settingsStore.settings.language
+        let appName = language.text("SitRight 坐正", "SitRight")
+        button.toolTip = appName
+        button.setAccessibilityLabel(appName)
     }
 
     private func observeStatusChanges() {
@@ -150,12 +152,19 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private func refreshStatusButton() {
         guard let button = statusItem.button else { return }
 
-        let showsCountdown = container.settingsStore.settings.menuBarCountdownEnabled
+        let settings = container.settingsStore.settings
+        let language = settings.language
+        let appName = language.text("SitRight 坐正", "SitRight")
+        button.toolTip = appName
+        button.setAccessibilityLabel(appName)
+
+        let showsCountdown = settings.menuBarCountdownEnabled
         let labelWidth: CGFloat
         if showsCountdown {
             labelWidth = MenuBarTitleLayout.fixedWidth(
                 for: container.engine.state,
-                remainingInterval: container.engine.remainingInterval
+                remainingInterval: container.engine.remainingInterval,
+                language: language
             )
         } else {
             labelWidth = 0
@@ -180,7 +189,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             statusText: container.engine.statusText,
             countdownText: container.engine.countdownText,
             state: container.engine.state,
-            showsCountdown: showsCountdown
+            showsCountdown: showsCountdown,
+            language: language
         )
         if accessibilityValue != lastAccessibilityValue {
             button.setAccessibilityValue(accessibilityValue)

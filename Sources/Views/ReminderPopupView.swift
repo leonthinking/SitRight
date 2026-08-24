@@ -18,6 +18,7 @@ enum ReminderPopupActionLayout {
 
 struct ReminderPopupView: View {
     let message: String
+    let language: AppLanguage
     let isGuiding: Bool
     let isCompletion: Bool
     let guideEndsAt: Date?
@@ -28,12 +29,14 @@ struct ReminderPopupView: View {
 
     init(
         message: String,
+        language: AppLanguage = .simplifiedChinese,
         isGuiding: Bool = false,
         isCompletion: Bool = false,
         guideEndsAt: Date? = nil,
         onAction: @escaping (ReminderAction) -> Void
     ) {
         self.message = message
+        self.language = language
         self.isGuiding = isGuiding
         self.isCompletion = isCompletion
         self.guideEndsAt = guideEndsAt
@@ -74,8 +77,10 @@ struct ReminderPopupView: View {
             VStack(spacing: 8) {
                 Text(
                     isCompletion
-                        ? "活动完成"
-                        : (isGuiding ? "活动进行中" : "到活动时间了")
+                        ? language.text("活动完成", "Break complete")
+                        : (isGuiding
+                            ? language.text("活动进行中", "Break in progress")
+                            : language.text("到活动时间了", "Time to move"))
                 )
                     .font(.title.weight(.bold))
                     .fontDesign(.rounded)
@@ -87,10 +92,10 @@ struct ReminderPopupView: View {
                 if isGuiding, let guideEndsAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let remaining = max(Int(ceil(guideEndsAt.timeIntervalSince(context.date))), 0)
-                        Text("还剩 \(remaining) 秒")
+                        Text(language.text("还剩 \(remaining) 秒", "\(remaining) seconds remaining"))
                             .font(.title2.monospacedDigit().weight(.semibold))
-                            .accessibilityLabel("活动剩余时间")
-                            .accessibilityValue("\(remaining) 秒")
+                            .accessibilityLabel(language.text("活动剩余时间", "Break time remaining"))
+                            .accessibilityValue(language.text("\(remaining) 秒", "\(remaining) seconds"))
                     }
                 }
             }
@@ -102,17 +107,20 @@ struct ReminderPopupView: View {
     @ViewBuilder
     private var actionSurface: some View {
         if isCompletion {
-            Button("知道了") {
+            Button(language.text("知道了", "Done")) {
                 onAction(.dismissed)
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
-            .accessibilityHint("关闭活动完成反馈")
+            .accessibilityHint(language.text(
+                "关闭活动完成反馈",
+                "Close the break completion message"
+            ))
         } else if isGuiding {
             Button {
                 onAction(.dismissed)
             } label: {
-                Label("取消活动", systemImage: "xmark.circle")
+                Label(language.text("取消活动", "Cancel break"), systemImage: "xmark.circle")
             }
             .buttonStyle(.bordered)
             .keyboardShortcut(.cancelAction)
@@ -161,7 +169,7 @@ struct ReminderPopupView: View {
                 onAction(.completed)
             } label: {
                 Label(
-                    "开始 1 分钟活动",
+                    language.text("开始 1 分钟活动", "Start a 1-minute break"),
                     systemImage: "arrow.triangle.2.circlepath"
                 )
                 .frame(maxWidth: fillsWidth ? .infinity : nil)
@@ -173,7 +181,10 @@ struct ReminderPopupView: View {
             Button {
                 onAction(.snoozed)
             } label: {
-                Label("延后 5 分钟", systemImage: "clock.arrow.circlepath")
+                Label(
+                    language.text("延后 5 分钟", "Remind me in 5 minutes"),
+                    systemImage: "clock.arrow.circlepath"
+                )
                     .frame(maxWidth: fillsWidth ? .infinity : nil)
             }
             .buttonStyle(.bordered)
@@ -182,7 +193,7 @@ struct ReminderPopupView: View {
             Button {
                 onAction(.pausedToday)
             } label: {
-                Label("暂停今天", systemImage: "moon")
+                Label(language.text("暂停今天", "Pause for today"), systemImage: "moon")
                     .frame(maxWidth: fillsWidth ? .infinity : nil)
             }
             .buttonStyle(.bordered)

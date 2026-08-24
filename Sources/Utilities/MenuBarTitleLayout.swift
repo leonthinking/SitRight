@@ -2,7 +2,11 @@ import Foundation
 import CoreGraphics
 
 enum MenuBarTitleLayout {
-    static func fixedWidth(for state: ReminderRunState, remainingInterval: TimeInterval) -> CGFloat {
+    static func fixedWidth(
+        for state: ReminderRunState,
+        remainingInterval: TimeInterval,
+        language: AppLanguage = .simplifiedChinese
+    ) -> CGFloat {
         switch state {
         case .running:
             let seconds = max(Int(remainingInterval.rounded()), 0)
@@ -13,27 +17,27 @@ enum MenuBarTitleLayout {
             }
 
             return 44
-        case .paused:
-            return 36
-        case .disabled:
-            return 36
-        case .due, .outsideHours:
-            return 36
+        case .paused, .disabled, .due, .outsideHours:
+            return language == .english ? 48 : 36
         }
     }
 
-    static func measurementText(for state: ReminderRunState, remainingInterval: TimeInterval) -> String {
+    static func measurementText(
+        for state: ReminderRunState,
+        remainingInterval: TimeInterval,
+        language: AppLanguage = .simplifiedChinese
+    ) -> String {
         switch state {
         case .running:
             return countdownMeasurementText(for: remainingInterval)
         case .paused:
-            return "暂停"
+            return language.text("暂停", "Pause")
         case .disabled:
-            return "关闭"
+            return language.text("关闭", "Off")
         case .due:
-            return "活动"
+            return language.text("活动", "Move")
         case .outsideHours:
-            return "休息"
+            return language.text("休息", "Rest")
         }
     }
 

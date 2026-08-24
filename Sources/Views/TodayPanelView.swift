@@ -9,6 +9,7 @@ struct TodayProgressPresentation: Equatable {
     let proactiveActivities: Int
     let legacyUnclassified: Int
     let subtitle: String
+    var language: AppLanguage = .simplifiedChinese
 
     var progress: Double {
         guard target > 0 else { return 0 }
@@ -26,7 +27,10 @@ struct TodayProgressPresentation: Equatable {
     var responseText: String? {
         guard let responseRate, reminderOpportunities > 0 else { return nil }
         let percentage = Int((responseRate * 100).rounded())
-        return "\(percentage)% · \(reminderCompleted)/\(reminderOpportunities) 次提醒"
+        return language.text(
+            "\(percentage)% · \(reminderCompleted)/\(reminderOpportunities) 次提醒",
+            "\(percentage)% · \(reminderCompleted)/\(reminderOpportunities) reminders"
+        )
     }
 }
 
@@ -83,11 +87,20 @@ struct TodayPanelView: View {
                 Button {
                     engine.startActivity()
                 } label: {
-                    Label("开始 1 分钟活动", systemImage: "figure.walk")
+                    Label(
+                        progressPresentation.language.text(
+                            "开始 1 分钟活动",
+                            "Start a 1-minute break"
+                        ),
+                        systemImage: "figure.walk"
+                    )
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .help("开始 60 秒活动；完整完成后才会计入目标")
+                .help(progressPresentation.language.text(
+                    "开始 60 秒活动；完整完成后才会计入目标",
+                    "Start a 60-second break. It counts toward your goal only when completed."
+                ))
 
                 awaitingSecondaryActions(canSnooze: canSnooze)
             }
@@ -99,7 +112,10 @@ struct TodayPanelView: View {
 
         case .guiding:
             StatusSurface(
-                text: "活动进行中，请在引导弹窗中完成或取消",
+                text: progressPresentation.language.text(
+                    "活动进行中，请在引导弹窗中完成或取消",
+                    "A break is in progress. Complete or cancel it in the guide window."
+                ),
                 systemImage: "timer",
                 color: .green
             )
@@ -109,20 +125,29 @@ struct TodayPanelView: View {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityHidden(true)
-                Text("正在发送活动提醒")
+                Text(progressPresentation.language.text(
+                    "正在发送活动提醒",
+                    "Sending activity reminder"
+                ))
                     .font(.subheadline)
                 Spacer()
             }
             .padding(.horizontal, 10)
             .frame(minHeight: 32)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("正在发送活动提醒")
+            .accessibilityLabel(progressPresentation.language.text(
+                "正在发送活动提醒",
+                "Sending activity reminder"
+            ))
 
         case .paused:
             Button {
                 engine.resume()
             } label: {
-                Label("恢复提醒", systemImage: "play.fill")
+                Label(
+                    progressPresentation.language.text("恢复提醒", "Resume reminders"),
+                    systemImage: "play.fill"
+                )
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -132,7 +157,13 @@ struct TodayPanelView: View {
             Button {
                 onOpenSettings(.schedule)
             } label: {
-                Label("调整提醒时段…", systemImage: "calendar")
+                Label(
+                    progressPresentation.language.text(
+                        "调整提醒时段…",
+                        "Adjust Reminder Schedule…"
+                    ),
+                    systemImage: "calendar"
+                )
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -142,7 +173,10 @@ struct TodayPanelView: View {
             Button {
                 onOpenSettings(.general)
             } label: {
-                Label("打开设置…", systemImage: "gearshape")
+                Label(
+                    progressPresentation.language.text("打开设置…", "Open Settings…"),
+                    systemImage: "gearshape"
+                )
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -193,7 +227,13 @@ struct TodayPanelView: View {
         Button {
             engine.startActivity()
         } label: {
-            Label("主动活动 1 分钟", systemImage: "figure.walk")
+            Label(
+                progressPresentation.language.text(
+                    "主动活动 1 分钟",
+                    "Take a 1-minute break"
+                ),
+                systemImage: "figure.walk"
+            )
                 .lineLimit(1)
                 .frame(maxWidth: fillsWidth ? .infinity : nil)
         }
@@ -201,8 +241,14 @@ struct TodayPanelView: View {
         .disabled(!canRecordManualActivity)
         .help(
             canRecordManualActivity
-                ? "主动开始 60 秒活动；完成后计入目标，通常保持原提醒时间"
-                : "当前状态不能记录主动活动"
+                ? progressPresentation.language.text(
+                    "主动开始 60 秒活动；完成后计入目标，通常保持原提醒时间",
+                    "Start a proactive 60-second break. Completing it counts toward your goal and usually keeps the original reminder time."
+                )
+                : progressPresentation.language.text(
+                    "当前状态不能记录主动活动",
+                    "A proactive break cannot be recorded in the current state"
+                )
         )
     }
 
@@ -210,7 +256,10 @@ struct TodayPanelView: View {
         Button {
             engine.pause()
         } label: {
-            Label("暂停", systemImage: "pause.fill")
+            Label(
+                progressPresentation.language.text("暂停", "Pause"),
+                systemImage: "pause.fill"
+            )
                 .lineLimit(1)
                 .frame(maxWidth: fillsWidth ? .infinity : nil)
         }
@@ -222,21 +271,36 @@ struct TodayPanelView: View {
             Button {
                 engine.resetTimer()
             } label: {
-                Label("从现在重新计时", systemImage: "arrow.clockwise")
+                Label(
+                    progressPresentation.language.text(
+                        "从现在重新计时",
+                        "Restart timer now"
+                    ),
+                    systemImage: "arrow.clockwise"
+                )
             }
 
             Button {
                 engine.pauseToday()
             } label: {
-                Label("暂停今天", systemImage: "moon")
+                Label(
+                    progressPresentation.language.text("暂停今天", "Pause for today"),
+                    systemImage: "moon"
+                )
             }
         } label: {
-            Label("更多", systemImage: "ellipsis.circle")
+            Label(
+                progressPresentation.language.text("更多", "More"),
+                systemImage: "ellipsis.circle"
+            )
                 .lineLimit(1)
                 .frame(maxWidth: fillsWidth ? .infinity : nil)
         }
         .menuStyle(.borderlessButton)
-        .help("更多提醒操作")
+        .help(progressPresentation.language.text(
+            "更多提醒操作",
+            "More reminder actions"
+        ))
     }
 
     @ViewBuilder
@@ -261,17 +325,28 @@ struct TodayPanelView: View {
     }
 
     private func snoozeButton(canSnooze: Bool) -> some View {
-        Button("延后 5 分钟") {
+        Button(progressPresentation.language.text(
+            "延后 5 分钟",
+            "Remind me in 5 minutes"
+        )) {
             engine.snooze()
         }
         .buttonStyle(.bordered)
         .disabled(!canSnooze)
-        .help(canSnooze ? "将本次提醒延后 5 分钟" : "本次提醒不能再次延后")
+        .help(canSnooze
+            ? progressPresentation.language.text(
+                "将本次提醒延后 5 分钟",
+                "Snooze this reminder for 5 minutes"
+            )
+            : progressPresentation.language.text(
+                "本次提醒不能再次延后",
+                "This reminder cannot be snoozed again"
+            ))
         .frame(maxWidth: .infinity)
     }
 
     private func pauseTodayButton() -> some View {
-        Button("暂停今天") {
+        Button(progressPresentation.language.text("暂停今天", "Pause for today")) {
             engine.pauseToday()
         }
         .buttonStyle(.bordered)
@@ -311,7 +386,7 @@ struct TodayPanelView: View {
     }
 
     private func resetButton() -> some View {
-        Button("重新计时") {
+        Button(progressPresentation.language.text("重新计时", "Restart timer")) {
             engine.resetTimer()
         }
         .buttonStyle(.bordered)
@@ -332,7 +407,7 @@ struct TodayPanelView: View {
                     Spacer()
                 }
             } label: {
-                Text("当前提醒")
+                Text(progressPresentation.language.text("当前提醒", "Current reminder"))
                     .font(.subheadline.weight(.semibold))
             }
         }
@@ -373,7 +448,7 @@ private struct TodayProgressView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 9) {
                 HStack {
-                    Text("目标进度")
+                    Text(presentation.language.text("目标进度", "Goal progress"))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text("\(presentation.dailyGoalCompleted)/\(presentation.target)")
@@ -383,7 +458,10 @@ private struct TodayProgressView: View {
 
                 ProgressView(value: presentation.progress)
                     .tint(presentation.progress >= 1 ? .green : .accentColor)
-                    .accessibilityLabel("今日活动目标")
+                    .accessibilityLabel(presentation.language.text(
+                        "今日活动目标",
+                        "Today's activity goal"
+                    ))
                     .accessibilityValue(
                         "\(presentation.dailyGoalCompleted)/\(presentation.target)"
                     )
@@ -393,7 +471,10 @@ private struct TodayProgressView: View {
 
                     if presentation.legacyUnclassified > 0 {
                         Label(
-                            "未分类记录 \(presentation.legacyUnclassified) 次",
+                            presentation.language.text(
+                                "未分类记录 \(presentation.legacyUnclassified) 次",
+                                "Unclassified records: \(presentation.legacyUnclassified)"
+                            ),
                             systemImage: "archivebox"
                         )
                         .font(.caption)
@@ -401,7 +482,10 @@ private struct TodayProgressView: View {
                     }
 
                     if let responseText = presentation.responseText {
-                        Text("提醒响应：\(responseText)")
+                        Text(presentation.language.text(
+                            "提醒响应：\(responseText)",
+                            "Reminder response: \(responseText)"
+                        ))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -414,7 +498,10 @@ private struct TodayProgressView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         } label: {
-            Label("今日统计", systemImage: "chart.bar.fill")
+            Label(
+                presentation.language.text("今日统计", "Today's stats"),
+                systemImage: "chart.bar.fill"
+            )
                 .font(.subheadline.weight(.semibold))
         }
     }
@@ -443,7 +530,10 @@ private struct TodayProgressView: View {
 
     private var reminderActivityLabel: some View {
         Label(
-            "提醒后 \(presentation.reminderCompleted) 次",
+            presentation.language.text(
+                "提醒后 \(presentation.reminderCompleted) 次",
+                "After reminders: \(presentation.reminderCompleted)"
+            ),
             systemImage: "bell.badge"
         )
         .font(.caption)
@@ -452,7 +542,10 @@ private struct TodayProgressView: View {
 
     private var proactiveActivityLabel: some View {
         Label(
-            "主动 \(presentation.proactiveActivities) 次",
+            presentation.language.text(
+                "主动 \(presentation.proactiveActivities) 次",
+                "Proactive: \(presentation.proactiveActivities)"
+            ),
             systemImage: "figure.walk"
         )
         .font(.caption)

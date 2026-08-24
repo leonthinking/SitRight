@@ -27,6 +27,7 @@ final class WidgetSyncController {
     ) {
         let snapshot = WidgetSnapshot(
             updatedAt: now,
+            language: settings.language,
             nextReminderAt: nextReminderAt,
             intervalMinutes: settings.intervalMinutes,
             state: WidgetSnapshot.RunState(state),
@@ -69,6 +70,7 @@ final class WidgetSyncController {
 private extension WidgetSnapshot {
     var reloadRelevantFields: String {
         var fields = [
+            language.rawValue,
             state.rawValue,
             statusText,
             "\(completedCount)",

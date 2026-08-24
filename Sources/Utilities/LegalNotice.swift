@@ -8,12 +8,12 @@ enum LegalNotice: String, Identifiable {
         rawValue
     }
 
-    var title: String {
+    func title(language: AppLanguage = .simplifiedChinese) -> String {
         switch self {
         case .sitRight:
-            return "MIT 开源协议"
+            return language.text("MIT 开源协议", "MIT License")
         case .thirdParty:
-            return "第三方许可"
+            return language.text("第三方许可", "Third-party licenses")
         }
     }
 

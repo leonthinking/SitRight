@@ -27,13 +27,23 @@ enum LaunchAtLoginIssue: Equatable {
     case serviceNotFound
     case operationFailed
 
-    var userMessage: String {
+    func userMessage(language: AppLanguage = .simplifiedChinese) -> String {
         switch self {
         case .serviceNotFound:
-            return "macOS 暂时未能识别 SitRight 登录项"
+            return language.text(
+                "macOS 暂时未能识别 SitRight 登录项",
+                "macOS cannot currently recognize the SitRight login item"
+            )
         case .operationFailed:
-            return "macOS 未能更改登录项，请在系统设置中检查后重试"
+            return language.text(
+                "macOS 未能更改登录项，请在系统设置中检查后重试",
+                "macOS could not change the login item. Check System Settings and try again."
+            )
         }
+    }
+
+    var userMessage: String {
+        userMessage()
     }
 }
 

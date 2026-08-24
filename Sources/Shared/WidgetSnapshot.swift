@@ -22,6 +22,7 @@ struct WidgetSnapshot: Codable, Equatable {
     }
 
     var updatedAt: Date
+    var language: AppLanguage
     var nextReminderAt: Date?
     var intervalMinutes: Int
     var state: RunState
@@ -46,6 +47,7 @@ struct WidgetSnapshot: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case updatedAt
+        case language
         case nextReminderAt
         case intervalMinutes
         case state
@@ -70,6 +72,7 @@ struct WidgetSnapshot: Codable, Equatable {
 
     init(
         updatedAt: Date,
+        language: AppLanguage = .simplifiedChinese,
         nextReminderAt: Date?,
         intervalMinutes: Int,
         state: RunState,
@@ -92,6 +95,7 @@ struct WidgetSnapshot: Codable, Equatable {
         guideEndsAt: Date? = nil
     ) {
         self.updatedAt = updatedAt
+        self.language = language
         self.nextReminderAt = nextReminderAt
         self.intervalMinutes = intervalMinutes
         self.state = state
@@ -119,6 +123,14 @@ struct WidgetSnapshot: Codable, Equatable {
         let defaults = WidgetSnapshot.empty
         let container = try decoder.container(keyedBy: CodingKeys.self)
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? defaults.updatedAt
+        if let rawLanguage = try? container.decodeIfPresent(
+            String.self,
+            forKey: .language
+        ) {
+            language = AppLanguage(rawValue: rawLanguage) ?? defaults.language
+        } else {
+            language = defaults.language
+        }
         nextReminderAt = try container.decodeIfPresent(Date.self, forKey: .nextReminderAt)
         intervalMinutes = try container.decodeIfPresent(Int.self, forKey: .intervalMinutes) ?? defaults.intervalMinutes
         state = try container.decodeIfPresent(RunState.self, forKey: .state) ?? defaults.state

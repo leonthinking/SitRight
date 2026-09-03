@@ -27,9 +27,15 @@ struct TodayProgressPresentation: Equatable {
     var responseText: String? {
         guard let responseRate, reminderOpportunities > 0 else { return nil }
         let percentage = Int((responseRate * 100).rounded())
+        let opportunityText = language.quantity(
+            reminderOpportunities,
+            simplifiedChineseUnit: "次提醒",
+            englishSingular: "reminder",
+            englishPlural: "reminders"
+        )
         return language.text(
-            "\(percentage)% · \(reminderCompleted)/\(reminderOpportunities) 次提醒",
-            "\(percentage)% · \(reminderCompleted)/\(reminderOpportunities) reminders"
+            "\(percentage)% · \(reminderCompleted)/\(opportunityText)",
+            "\(percentage)% · \(reminderCompleted)/\(opportunityText)"
         )
     }
 }
@@ -51,7 +57,8 @@ struct TodayPanelView: View {
                 title: presentation.countdownText,
                 subtitle: presentation.nextReminderText,
                 state: presentation.state,
-                phase: presentation.phase
+                phase: presentation.phase,
+                language: progressPresentation.language
             )
 
             actionSurface

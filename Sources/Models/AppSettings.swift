@@ -1,7 +1,7 @@
 import Foundation
 
 struct AppSettings: Codable, Equatable {
-    var language: AppLanguage = .simplifiedChinese
+    var language: AppLanguage = .systemDefault
     var remindersEnabled: Bool = true
     var intervalMinutes: Int = 50
     var dailyTarget: Int = 8

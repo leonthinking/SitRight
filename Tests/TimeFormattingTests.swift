@@ -12,6 +12,34 @@ final class TimeFormattingTests: XCTestCase {
         XCTAssertEqual(TimeFormatting.menuBarCountdown(3_905), "1:05:05")
     }
 
+    func testClockTextFollowsTwelveAndTwentyFourHourLocales() {
+        let twelveHour = Locale(identifier: "en_US@hours=h12")
+        let twentyFourHour = Locale(identifier: "en_US@hours=h23")
+
+        let twelveHourText = TimeFormatting.clockText(
+            for: 9 * 60 + 30,
+            locale: twelveHour
+        )
+        let twentyFourHourText = TimeFormatting.clockText(
+            for: 9 * 60 + 30,
+            locale: twentyFourHour
+        )
+
+        XCTAssertTrue(twelveHourText.localizedCaseInsensitiveContains("AM"))
+        XCTAssertTrue(twelveHourText.contains("9:30"))
+        XCTAssertEqual(twentyFourHourText, "09:30")
+        let twelveHourMidnight = TimeFormatting.clockText(
+            for: 24 * 60,
+            locale: twelveHour
+        )
+        XCTAssertTrue(twelveHourMidnight.contains("12:00"))
+        XCTAssertTrue(twelveHourMidnight.localizedCaseInsensitiveContains("AM"))
+        XCTAssertEqual(
+            TimeFormatting.clockText(for: 24 * 60, locale: twentyFourHour),
+            "00:00"
+        )
+    }
+
     func testMenuBarTitleLayoutUsesMinuteTemplateBelowOneHour() {
         XCTAssertEqual(
             MenuBarTitleLayout.measurementText(for: .running, remainingInterval: 59),

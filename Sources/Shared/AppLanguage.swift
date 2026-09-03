@@ -1,14 +1,46 @@
 import Foundation
 
 enum AppLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
+    case systemDefault = "system_default"
     case simplifiedChinese = "zh-Hans"
     case english = "en"
 
     var id: String { rawValue }
 
+    static var preferredSystemLanguageLocale: Locale {
+        Locale(
+            identifier: Locale.preferredLanguages.first
+                ?? Locale.current.identifier
+        )
+    }
+
     var locale: Locale {
-        var components = Locale.Components(locale: .current)
-        switch self {
+        locale(
+            resolvingSystemLocale: .current,
+            preferredLanguageLocale: Self.preferredSystemLanguageLocale
+        )
+    }
+
+    func resolvedLanguage(
+        for systemLocale: Locale = Self.preferredSystemLanguageLocale
+    ) -> AppLanguage {
+        guard self == .systemDefault else { return self }
+        return systemLocale.language.languageCode?.identifier == "zh"
+            ? .simplifiedChinese
+            : .english
+    }
+
+    func locale(
+        resolvingSystemLocale systemLocale: Locale,
+        preferredLanguageLocale: Locale? = nil
+    ) -> Locale {
+        let resolvedLanguage = resolvedLanguage(
+            for: preferredLanguageLocale ?? systemLocale
+        )
+        var components = Locale.Components(locale: systemLocale)
+        switch resolvedLanguage {
+        case .systemDefault:
+            return systemLocale
         case .simplifiedChinese:
             components.languageComponents.languageCode = Locale.LanguageCode("zh")
             components.languageComponents.script = Locale.Script("Hans")
@@ -19,13 +51,21 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
         // Language is an app-copy preference. Preserve the user's regional
         // hour-cycle and week-start choices rather than silently changing
         // them with a bare `en` or `zh-Hans` locale.
-        components.hourCycle = Locale.current.hourCycle
-        components.firstDayOfWeek = Locale.current.firstDayOfWeek
+        components.hourCycle = systemLocale.hourCycle
+        components.firstDayOfWeek = systemLocale.firstDayOfWeek
         return Locale(components: components)
     }
 
     var displayName: String {
+        displayName(resolvingSystemLocale: .current)
+    }
+
+    func displayName(resolvingSystemLocale systemLocale: Locale) -> String {
         switch self {
+        case .systemDefault:
+            return resolvedLanguage(for: systemLocale) == .simplifiedChinese
+                ? "自动（跟随系统）"
+                : "Automatic (System Default)"
         case .simplifiedChinese:
             return "简体中文"
         case .english:
@@ -33,13 +73,35 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    func displayName(presentationLanguage: AppLanguage) -> String {
+        guard self == .systemDefault else { return displayName }
+        return presentationLanguage.text(
+            "自动（跟随系统）",
+            "Automatic (System Default)"
+        )
+    }
+
     func text(_ simplifiedChinese: String, _ english: String) -> String {
-        switch self {
+        switch resolvedLanguage() {
+        case .systemDefault:
+            return english
         case .simplifiedChinese:
             return simplifiedChinese
         case .english:
             return english
         }
+    }
+
+    func quantity(
+        _ value: Int,
+        simplifiedChineseUnit: String,
+        englishSingular: String,
+        englishPlural: String
+    ) -> String {
+        text(
+            "\(value) \(simplifiedChineseUnit)",
+            "\(value) \(value == 1 ? englishSingular : englishPlural)"
+        )
     }
 
     func formattedTime(_ date: Date) -> String {
@@ -50,13 +112,18 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 
     func localizedRuntimeMessage(_ message: String) -> String {
-        guard self == .english else { return message }
-
+        let resolvedLanguage = resolvedLanguage()
         let combinedMessages = message.components(separatedBy: "；")
         if combinedMessages.count > 1 {
             return combinedMessages
                 .map(localizedRuntimeMessage)
-                .joined(separator: "; ")
+                .joined(separator: resolvedLanguage == .english ? "; " : "；")
+        }
+
+        guard resolvedLanguage == .english else {
+            return Self.isSystemDetailCompatible(message, with: resolvedLanguage)
+                ? message
+                : "SitRight 遇到意外错误，请重试"
         }
 
         switch message {
@@ -69,10 +136,47 @@ enum AppLanguage: String, Codable, CaseIterable, Identifiable, Sendable {
         default:
             let storagePrefix = "无法访问 SitRight 本地存储："
             if message.hasPrefix(storagePrefix) {
-                return "Unable to access SitRight local storage: "
-                    + message.dropFirst(storagePrefix.count)
+                let detail = String(message.dropFirst(storagePrefix.count))
+                guard Self.isSystemDetailCompatible(detail, with: resolvedLanguage) else {
+                    return "Unable to access SitRight local storage."
+                }
+                return "Unable to access SitRight local storage: \(detail)"
             }
-            return message
+            return Self.isSystemDetailCompatible(message, with: resolvedLanguage)
+                ? message
+                : "SitRight encountered an unexpected error. Please try again."
         }
+    }
+
+    func sanitizedSystemErrorDetail(
+        _ detail: String,
+        simplifiedChineseFallback: String,
+        englishFallback: String
+    ) -> String {
+        Self.isSystemDetailCompatible(detail, with: resolvedLanguage())
+            ? detail
+            : text(simplifiedChineseFallback, englishFallback)
+    }
+
+    private static func isSystemDetailCompatible(
+        _ detail: String,
+        with language: AppLanguage
+    ) -> Bool {
+        let allowedScripts: String
+        switch language {
+        case .systemDefault:
+            return isSystemDetailCompatible(
+                detail,
+                with: language.resolvedLanguage()
+            )
+        case .simplifiedChinese:
+            guard detail.range(of: #"\p{Han}"#, options: .regularExpression) != nil else {
+                return false
+            }
+            allowedScripts = #"^[\p{Han}\p{Latin}\p{N}\p{P}\p{S}\p{Z}\p{M}]*$"#
+        case .english:
+            allowedScripts = #"^[\p{Latin}\p{N}\p{P}\p{S}\p{Z}\p{M}]*$"#
+        }
+        return detail.range(of: allowedScripts, options: .regularExpression) != nil
     }
 }

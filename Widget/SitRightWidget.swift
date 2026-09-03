@@ -175,7 +175,7 @@ struct SitRightWidgetEntryView: View {
         case .awaitingResponse:
             return language.text("等待开始 1 分钟活动", "Waiting to start a 1-minute break")
         case .snoozed:
-            return language.text("已延后 5 分钟", "Reminded again in 5 minutes")
+            return language.text("已延后 5 分钟", "Reminder snoozed for 5 minutes")
         case .guiding:
             return language.text("活动进行中", "Break in progress")
         case .overdue:
@@ -415,9 +415,27 @@ private struct HeatmapView: View {
 
     private func accessibilitySummary(for presentation: HeatmapPresentation) -> String {
         let summary = presentation.summary
+        let activityText = language.quantity(
+            summary.activityTotal,
+            simplifiedChineseUnit: "次活动",
+            englishSingular: "activity",
+            englishPlural: "activities"
+        )
+        let activeDayText = language.quantity(
+            summary.activeDays,
+            simplifiedChineseUnit: "个活跃日",
+            englishSingular: "active day",
+            englishPlural: "active days"
+        )
+        let completedDayText = language.quantity(
+            summary.completedDays,
+            simplifiedChineseUnit: "个达标日",
+            englishSingular: "goal day",
+            englishPlural: "goal days"
+        )
         return language.text(
-            "最近 \(dayCount) 天，活动 \(summary.activityTotal) 次，活跃 \(summary.activeDays) 天，达标 \(summary.completedDays) 天",
-            "Last \(dayCount) days: \(summary.activityTotal) activities, \(summary.activeDays) active days, \(summary.completedDays) goal days"
+            "最近 \(dayCount) 天，\(activityText)，\(activeDayText)，\(completedDayText)",
+            "Last \(dayCount) days: \(activityText), \(activeDayText), \(completedDayText)"
         )
     }
 }

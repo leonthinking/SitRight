@@ -30,6 +30,22 @@ No tracked tasks yet.
 
 ## Done
 
+### TASK-20260903-system-default-language
+
+- Status: Done
+- Goal: Add a persisted `system_default` language preference, make it the default, and resolve all app-owned, notification, and Widget copy to Simplified Chinese on Chinese systems or English otherwise.
+- Impacted areas: App language resolution, settings compatibility, notification categories, Widget snapshots, settings presentation, README/project context, packaged App validation, and regression coverage.
+- Verification: `swift test --disable-sandbox` passed 284/284 with a repository-local module cache; `git diff --check` passed; the signed App/Widget build and transaction install to `/Applications/SitRight.app` succeeded with TeamIdentifier `973KFG9CL9` and the required App Group. The installed Settings window preserved the existing explicit English preference and exposed exactly `Automatic (System Default)`, `简体中文`, and `English`. Two independent adversarial reviews found and drove fixes for non-Chinese month-label mixing and legacy Widget status-language mixing; final re-reviews found no confirmed issues.
+- Handoff notes: New, missing, and unknown App settings use the stable raw value `system_default`; existing explicit `zh-Hans` and `en` values remain unchanged. Automatic mode resolves Chinese system interface languages to Simplified Chinese and all other interface languages to English while preserving regional hour-cycle and week-start preferences. Changing the preference does not reset cadence or activity data. Runtime changes to the macOS primary language rely on the normal app/system refresh or relaunch path rather than a custom hot-switch observer. Version `0.2.8 (13)`, Git state, and the unrelated untracked `output/` directory remain unchanged; no commit, push, tag, DMG, or Release was performed.
+
+### TASK-20260903-english-layout-adaptation
+
+- Status: Done
+- Goal: Make the English activity-guide window fully readable at its normal size and audit all app-owned English surfaces for missing localization or layout regressions.
+- Impacted areas: Reminder panel sizing and SwiftUI layout, bilingual presentation coverage, notifications/menu/settings/Widget/update/accessibility copy audit, packaged App visual acceptance, and project documentation.
+- Verification: `swift test --disable-sandbox` passed 280/280 and `git diff --check` passed. The signed App/Widget build and transaction install succeeded with TeamIdentifier `973KFG9CL9` and the required App Group. Production-hosting tests cover every normal Chinese/English reminder, guide, completion message and action within the fixed horizontal bounds; the accessibility fallback proves the cancel action intersects the real scroll viewport after scrolling. The installed English menu, General Settings page, Widget, and 1-minute guide were inspected on the desktop; the guide displayed all text, countdown, and cancel action at its normal size without a scrollbar. Two independent adversarial reviews found and drove fixes for scroll reachability, timer-ring clipping, midnight formatting, cross-language error details, count grammar, time-cycle formatting, and status wording; final reviews found no remaining confirmed issues.
+- Handoff notes: Normal reminder panels remain fixed at 420 pt wide with a 360 pt minimum height, while small screens and accessibility text sizes retain the internal scroll fallback. Automatic Hosting Controller sizing remains disabled and countdown ticks do not remeasure the panel. Reminder cadence, settings/history/Widget persistence, version `0.2.8 (13)`, and the unrelated untracked `output/` directory are unchanged. The desktop acceptance activity was canceled before completion. No commit, push, tag, DMG, or Release was performed.
+
 ### TASK-20260824-settings-value-controls
 
 - Status: Done

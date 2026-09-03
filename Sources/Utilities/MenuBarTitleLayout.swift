@@ -18,7 +18,7 @@ enum MenuBarTitleLayout {
 
             return 44
         case .paused, .disabled, .due, .outsideHours:
-            return language == .english ? 48 : 36
+            return language.resolvedLanguage() == .english ? 48 : 36
         }
     }
 

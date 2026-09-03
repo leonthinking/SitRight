@@ -42,11 +42,15 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.engine.accumulatedEligibleSeconds, 0)
         XCTAssertEqual(
             harness.engine.celebrationText,
-            ActivityGuideCompletionOutcome.reminderResponse.celebrationText
+            ActivityGuideCompletionOutcome.reminderResponse.celebrationText(
+                language: .systemDefault
+            )
         )
         XCTAssertEqual(
             harness.presenter.completionMessages,
-            [ActivityGuideCompletionOutcome.reminderResponse.celebrationText]
+            [ActivityGuideCompletionOutcome.reminderResponse.celebrationText(
+                language: .systemDefault
+            )]
         )
     }
 
@@ -94,11 +98,15 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.engine.nextReminderAt, originalReminderAt)
         XCTAssertEqual(
             harness.engine.celebrationText,
-            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText
+            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText(
+                language: .systemDefault
+            )
         )
         XCTAssertEqual(
             harness.presenter.completionMessages,
-            [ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText]
+            [ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText(
+                language: .systemDefault
+            )]
         )
         XCTAssertEqual(harness.statsStore.today.qualifiedProactiveCount, 1)
         XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
@@ -154,7 +162,9 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.engine.nextReminderAt, originalReminderAt)
         XCTAssertEqual(
             harness.engine.celebrationText,
-            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText
+            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText(
+                language: .systemDefault
+            )
         )
     }
 
@@ -175,7 +185,9 @@ final class ReminderEngineTests: XCTestCase {
         )
         XCTAssertEqual(
             harness.engine.celebrationText,
-            ActivityGuideCompletionOutcome.proactiveSatisfyingUpcomingReminder.celebrationText
+            ActivityGuideCompletionOutcome.proactiveSatisfyingUpcomingReminder.celebrationText(
+                language: .systemDefault
+            )
         )
         XCTAssertEqual(harness.statsStore.today.qualifiedProactiveCount, 1)
         XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
@@ -195,7 +207,9 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.engine.remainingInterval, 45 * 60)
         XCTAssertEqual(
             harness.engine.celebrationText,
-            ActivityGuideCompletionOutcome.proactiveSatisfyingUpcomingReminder.celebrationText
+            ActivityGuideCompletionOutcome.proactiveSatisfyingUpcomingReminder.celebrationText(
+                language: .systemDefault
+            )
         )
         XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
     }
@@ -466,7 +480,7 @@ final class ReminderEngineTests: XCTestCase {
             harness.engine.celebrationText,
             ActivityGuideCompletionOutcome
                 .proactiveSatisfyingUpcomingReminder
-                .celebrationText
+                .celebrationText(language: .systemDefault)
         )
         XCTAssertEqual(harness.statsStore.today.qualifiedProactiveCount, 1)
         XCTAssertEqual(harness.statsStore.today.reminderOpportunityCount, 0)
@@ -683,11 +697,15 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.engine.phase, .outsideSchedule)
         XCTAssertEqual(
             harness.engine.celebrationText,
-            ActivityGuideCompletionOutcome.proactiveFollowingSchedule.celebrationText
+            ActivityGuideCompletionOutcome.proactiveFollowingSchedule.celebrationText(
+                language: .systemDefault
+            )
         )
         XCTAssertEqual(
             harness.presenter.completionMessages,
-            [ActivityGuideCompletionOutcome.proactiveFollowingSchedule.celebrationText]
+            [ActivityGuideCompletionOutcome.proactiveFollowingSchedule.celebrationText(
+                language: .systemDefault
+            )]
         )
     }
 
@@ -714,7 +732,9 @@ final class ReminderEngineTests: XCTestCase {
         XCTAssertEqual(harness.engine.nextReminderAt, originalReminderAt)
         XCTAssertEqual(
             harness.engine.celebrationText,
-            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText
+            ActivityGuideCompletionOutcome.proactivePreservingCadence.celebrationText(
+                language: .systemDefault
+            )
         )
     }
 

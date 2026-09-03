@@ -504,7 +504,7 @@ final class ReminderEngine: ObservableObject {
                 ? TimeFormatting.countdown(remainingInterval)
                 : language.text("该活动了", "Time to move")
         case .outsideHours:
-            return language.text("非工作时间", "Outside work hours")
+            return language.text("非工作时间", "Off hours")
         case .running:
             if phase == .snoozed {
                 return language.text(
@@ -513,7 +513,7 @@ final class ReminderEngine: ObservableObject {
                 )
             }
             if phase == .overdue {
-                return language.text("等待下次提醒", "Waiting for the next reminder")
+                return language.text("等待", "Waiting")
             }
             return TimeFormatting.countdown(remainingInterval)
         }
@@ -545,11 +545,18 @@ final class ReminderEngine: ObservableObject {
         case .awaitingResponse:
             return language.text("等待开始 1 分钟活动", "Waiting to start a 1-minute break")
         case .snoozed:
-            return language.text("已延后 5 分钟", "Reminded again in 5 minutes")
+            return language.text("已延后 5 分钟", "Reminder snoozed for 5 minutes")
         case .guiding:
+            let remainingSeconds = Int(ceil(remainingInterval))
+            let remainingText = language.quantity(
+                remainingSeconds,
+                simplifiedChineseUnit: "秒",
+                englishSingular: "second",
+                englishPlural: "seconds"
+            )
             return language.text(
-                "活动进行中，还剩 \(Int(ceil(remainingInterval))) 秒",
-                "Break in progress, \(Int(ceil(remainingInterval))) seconds remaining"
+                "活动进行中，还剩 \(remainingText)",
+                "Break in progress, \(remainingText) remaining"
             )
         case .overdue:
             return deliveryBlocked

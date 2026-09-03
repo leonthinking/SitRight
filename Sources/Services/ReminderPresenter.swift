@@ -15,7 +15,11 @@ enum ReminderPanelMeasurementTrigger: Equatable {
 
 enum ReminderPanelSizingPolicy {
     static let width: CGFloat = 420
-    static let minimumHeight: CGFloat = 300
+    // English guide and reminder copy needs one more wrapped line than the
+    // compact Chinese presentation. Keep enough room for the complete
+    // regular-size content so the ScrollView remains an accessibility and
+    // small-screen fallback instead of the default English layout.
+    static let minimumHeight: CGFloat = 360
     static let maximumContentHeight: CGFloat = 720
     static let screenEdgeMargin: CGFloat = 48
     static let hostingSizingOptions: NSHostingSizingOptions = []

@@ -89,27 +89,37 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         func message(language: AppLanguage) -> String {
             switch self {
             case .authorizationFailed(let detail):
-                language.text(
-                    "通知授权失败：\(detail)",
-                    "Notification authorization failed: \(detail)"
+                let presentedDetail = language.sanitizedSystemErrorDetail(
+                    detail,
+                    simplifiedChineseFallback: "请重试",
+                    englishFallback: "Please try again"
+                )
+                return language.text(
+                    "通知授权失败：\(presentedDetail)",
+                    "Notification authorization failed: \(presentedDetail)"
                 )
             case .permissionUnavailable:
-                language.text(
+                return language.text(
                     "系统通知权限未开启",
                     "System notification permission is not enabled"
                 )
             case .permissionDenied:
-                language.text(
+                return language.text(
                     "系统通知权限已关闭",
                     "System notification permission is off"
                 )
             case .deliveryFailed(let detail):
-                language.text(
-                    "通知发送失败：\(detail)",
-                    "Notification delivery failed: \(detail)"
+                let presentedDetail = language.sanitizedSystemErrorDetail(
+                    detail,
+                    simplifiedChineseFallback: "请重试",
+                    englishFallback: "Please try again"
+                )
+                return language.text(
+                    "通知发送失败：\(presentedDetail)",
+                    "Notification delivery failed: \(presentedDetail)"
                 )
             case .unknownPermission:
-                language.text(
+                return language.text(
                     "无法确认系统通知权限",
                     "Unable to determine notification permission"
                 )
@@ -296,7 +306,9 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     }
 
     private static func reminderCategoryIdentifier(for language: AppLanguage) -> String {
-        switch language {
+        switch language.resolvedLanguage() {
+        case .systemDefault:
+            englishReminderCategoryIdentifier
         case .simplifiedChinese:
             reminderCategoryIdentifier
         case .english:

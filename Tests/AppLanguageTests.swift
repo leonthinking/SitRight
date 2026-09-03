@@ -4,8 +4,33 @@ import XCTest
 
 final class AppLanguageTests: XCTestCase {
     func testLanguageNamesAndCorePresentationCopy() {
+        XCTAssertEqual(AppLanguage.systemDefault.rawValue, "system_default")
+        XCTAssertEqual(
+            AppLanguage.systemDefault.displayName(
+                resolvingSystemLocale: Locale(identifier: "zh-Hans-CN")
+            ),
+            "自动（跟随系统）"
+        )
+        XCTAssertEqual(
+            AppLanguage.systemDefault.displayName(
+                resolvingSystemLocale: Locale(identifier: "en-US")
+            ),
+            "Automatic (System Default)"
+        )
         XCTAssertEqual(AppLanguage.simplifiedChinese.displayName, "简体中文")
         XCTAssertEqual(AppLanguage.english.displayName, "English")
+        XCTAssertEqual(
+            AppLanguage.systemDefault.displayName(
+                presentationLanguage: .simplifiedChinese
+            ),
+            "自动（跟随系统）"
+        )
+        XCTAssertEqual(
+            AppLanguage.systemDefault.displayName(
+                presentationLanguage: .english
+            ),
+            "Automatic (System Default)"
+        )
         XCTAssertEqual(
             SettingsPanePresentation.title(for: .general, language: .english),
             "General"
@@ -23,6 +48,48 @@ final class AppLanguageTests: XCTestCase {
                 language: .english
             ),
             "Reminders are active, 04:32 remaining"
+        )
+    }
+
+    func testSystemDefaultResolvesChineseSystemsToChineseAndOthersToEnglish() {
+        for identifier in ["zh-Hans-CN", "zh-Hant-TW", "zh-HK"] {
+            XCTAssertEqual(
+                AppLanguage.systemDefault.resolvedLanguage(
+                    for: Locale(identifier: identifier)
+                ),
+                .simplifiedChinese
+            )
+        }
+
+        for identifier in ["en-US", "ja-JP", "fr-FR"] {
+            XCTAssertEqual(
+                AppLanguage.systemDefault.resolvedLanguage(
+                    for: Locale(identifier: identifier)
+                ),
+                .english
+            )
+        }
+    }
+
+    func testSystemDefaultLocaleUsesResolvedCopyLanguageAndKeepsRegionPreferences() {
+        let systemLocale = Locale(identifier: "ja-JP")
+        let locale = AppLanguage.systemDefault.locale(
+            resolvingSystemLocale: systemLocale,
+            preferredLanguageLocale: Locale(identifier: "en-US")
+        )
+
+        XCTAssertEqual(
+            locale.language.languageCode?.identifier,
+            "en"
+        )
+        XCTAssertEqual(locale.hourCycle, systemLocale.hourCycle)
+        XCTAssertEqual(locale.firstDayOfWeek, systemLocale.firstDayOfWeek)
+
+        let month = Date(timeIntervalSince1970: 1_785_456_000).formatted(
+            Date.FormatStyle().month(.abbreviated).locale(locale)
+        )
+        XCTAssertTrue(
+            month.range(of: #"^[A-Za-z]+$"#, options: .regularExpression) != nil
         )
     }
 
@@ -98,10 +165,120 @@ final class AppLanguageTests: XCTestCase {
             "custom system error"
         )
         XCTAssertEqual(
+            AppLanguage.english.localizedRuntimeMessage("未知系统错误"),
+            "SitRight encountered an unexpected error. Please try again."
+        )
+        XCTAssertEqual(
+            AppLanguage.english.localizedRuntimeMessage("予期しないエラー"),
+            "SitRight encountered an unexpected error. Please try again."
+        )
+        XCTAssertEqual(
+            AppLanguage.simplifiedChinese.localizedRuntimeMessage(
+                "Unexpected system error"
+            ),
+            "SitRight 遇到意外错误，请重试"
+        )
+        XCTAssertEqual(
+            AppLanguage.english.localizedRuntimeMessage(
+                "无法访问 SitRight 本地存储：目录不可用"
+            ),
+            "Unable to access SitRight local storage."
+        )
+        XCTAssertEqual(
             AppLanguage.english.localizedRuntimeMessage(
                 "活动记录已从备份恢复；无法访问 SitRight App Group，共享统计已暂停"
             ),
             "Activity history was restored from backup; Unable to access the SitRight App Group. Shared statistics are paused."
+        )
+    }
+
+    func testEnglishQuantitiesUseSingularAndPluralForms() {
+        XCTAssertEqual(
+            AppLanguage.english.quantity(
+                1,
+                simplifiedChineseUnit: "秒",
+                englishSingular: "second",
+                englishPlural: "seconds"
+            ),
+            "1 second"
+        )
+        XCTAssertEqual(
+            AppLanguage.english.quantity(
+                0,
+                simplifiedChineseUnit: "秒",
+                englishSingular: "second",
+                englishPlural: "seconds"
+            ),
+            "0 seconds"
+        )
+        XCTAssertEqual(
+            AppLanguage.english.quantity(
+                2,
+                simplifiedChineseUnit: "秒",
+                englishSingular: "second",
+                englishPlural: "seconds"
+            ),
+            "2 seconds"
+        )
+        XCTAssertEqual(
+            AppLanguage.simplifiedChinese.quantity(
+                1,
+                simplifiedChineseUnit: "秒",
+                englishSingular: "second",
+                englishPlural: "seconds"
+            ),
+            "1 秒"
+        )
+    }
+
+    func testEnglishSystemErrorDetailsDoNotLeakChineseCopy() {
+        XCTAssertEqual(
+            AppLanguage.english.sanitizedSystemErrorDetail(
+                "系统拒绝了请求",
+                simplifiedChineseFallback: "请重试",
+                englishFallback: "Please try again"
+            ),
+            "Please try again"
+        )
+        XCTAssertEqual(
+            AppLanguage.english.sanitizedSystemErrorDetail(
+                "The request was denied",
+                simplifiedChineseFallback: "请重试",
+                englishFallback: "Please try again"
+            ),
+            "The request was denied"
+        )
+        XCTAssertEqual(
+            AppLanguage.simplifiedChinese.sanitizedSystemErrorDetail(
+                "系统拒绝了请求",
+                simplifiedChineseFallback: "请重试",
+                englishFallback: "Please try again"
+            ),
+            "系统拒绝了请求"
+        )
+        XCTAssertEqual(
+            AppLanguage.english.sanitizedSystemErrorDetail(
+                "リクエストが拒否されました",
+                simplifiedChineseFallback: "请重试",
+                englishFallback: "Please try again"
+            ),
+            "Please try again"
+        )
+        XCTAssertEqual(
+            AppLanguage.english.sanitizedSystemErrorDetail(
+                "Запрос отклонен",
+                simplifiedChineseFallback: "请重试",
+                englishFallback: "Please try again"
+            ),
+            "Please try again"
+        )
+        XCTAssertEqual(
+            AppLanguage.simplifiedChinese.sanitizedSystemErrorDetail(
+                "The request was denied",
+                simplifiedChineseFallback: "请重试",
+                englishFallback: "Please try again"
+            ),
+            "请重试"
         )
     }
 

@@ -132,6 +132,81 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(client.authorizationStatusCallCount, authorizationQueryCount)
     }
 
+    func testEnglishNotificationFailuresDoNotExposeChineseSystemDetails() async {
+        let chineseError = NSError(
+            domain: "NotificationManagerTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "系统拒绝了请求"]
+        )
+        let client = NotificationCenterClientStub(status: .authorized)
+        client.addError = chineseError
+        let manager = NotificationManager(client: client, language: .english)
+        let observedInitialStatus = await waitUntil {
+            manager.authorizationStatus == .authorized
+        }
+        XCTAssertTrue(observedInitialStatus)
+
+        var deliveryResult: Bool?
+        manager.deliverReminder(body: "Time to move", soundEnabled: false) {
+            deliveryResult = $0
+        }
+        let observedDelivery = await waitUntil { deliveryResult != nil }
+
+        XCTAssertTrue(observedDelivery)
+        XCTAssertEqual(deliveryResult, false)
+        XCTAssertEqual(
+            manager.lastErrorMessage,
+            "Notification delivery failed: Please try again"
+        )
+        XCTAssertFalse(manager.lastErrorMessage?.contains("系统") ?? true)
+
+        let authorizationClient = NotificationCenterClientStub(status: .notDetermined)
+        authorizationClient.requestAuthorizationError = chineseError
+        let authorizationManager = NotificationManager(
+            client: authorizationClient,
+            language: .english
+        )
+        authorizationManager.requestAuthorizationIfNeeded()
+        let observedAuthorizationFailure = await waitUntil {
+            authorizationManager.lastErrorMessage != nil
+        }
+        XCTAssertTrue(observedAuthorizationFailure)
+        XCTAssertEqual(
+            authorizationManager.lastErrorMessage,
+            "Notification authorization failed: Please try again"
+        )
+        XCTAssertFalse(authorizationManager.lastErrorMessage?.contains("系统") ?? true)
+    }
+
+    func testChineseNotificationFailureDoesNotExposeEnglishSystemDetail() async {
+        let englishError = NSError(
+            domain: "NotificationManagerTests",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "The request was denied"]
+        )
+        let client = NotificationCenterClientStub(status: .authorized)
+        client.addError = englishError
+        let manager = NotificationManager(
+            client: client,
+            language: .simplifiedChinese
+        )
+        let observedInitialStatus = await waitUntil {
+            manager.authorizationStatus == .authorized
+        }
+        XCTAssertTrue(observedInitialStatus)
+
+        var deliveryResult: Bool?
+        manager.deliverReminder(body: "该活动了", soundEnabled: false) {
+            deliveryResult = $0
+        }
+        let observedDelivery = await waitUntil { deliveryResult != nil }
+
+        XCTAssertTrue(observedDelivery)
+        XCTAssertEqual(deliveryResult, false)
+        XCTAssertEqual(manager.lastErrorMessage, "通知发送失败：请重试")
+        XCTAssertFalse(manager.lastErrorMessage?.contains("request") ?? true)
+    }
+
     private func waitUntil(_ predicate: () -> Bool) async -> Bool {
         for _ in 0..<100 {
             if predicate() { return true }
@@ -151,6 +226,8 @@ private final class NotificationCenterClientStub: NotificationCenterClient {
     private var statusContinuation: CheckedContinuation<UNAuthorizationStatus, Never>?
     private var shouldSuspendNextStatusQuery = false
     private(set) var addedRequests: [UNNotificationRequest] = []
+    var requestAuthorizationError: Error?
+    var addError: Error?
 
     var hasPendingAuthorizationRequest: Bool {
         authorizationContinuation != nil
@@ -180,6 +257,9 @@ private final class NotificationCenterClientStub: NotificationCenterClient {
     }
 
     func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
+        if let requestAuthorizationError {
+            throw requestAuthorizationError
+        }
         let granted = await withCheckedContinuation { continuation in
             authorizationContinuation = continuation
         }
@@ -194,6 +274,9 @@ private final class NotificationCenterClientStub: NotificationCenterClient {
     }
 
     func add(_ request: UNNotificationRequest) async throws {
+        if let addError {
+            throw addError
+        }
         addedRequests.append(request)
     }
 

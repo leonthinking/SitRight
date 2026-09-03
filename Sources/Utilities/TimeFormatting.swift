@@ -40,9 +40,29 @@ enum TimeFormatting {
         return String(format: "%02d:%02d", minutes, remainder)
     }
 
-    static func clockText(for minutes: Int) -> String {
-        let hour = minutes / 60
-        let minute = minutes % 60
-        return String(format: "%02d:%02d", hour, minute)
+    static func clockText(
+        for minutes: Int,
+        locale: Locale = .current
+    ) -> String {
+        let normalizedMinutes = min(max(minutes, 0), 24 * 60)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let startOfDay = calendar.date(from: DateComponents(
+            year: 2001,
+            month: 1,
+            day: 1
+        ))!
+        let date = calendar.date(
+            byAdding: .minute,
+            value: normalizedMinutes,
+            to: startOfDay
+        )!
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = locale
+        formatter.timeZone = calendar.timeZone
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }

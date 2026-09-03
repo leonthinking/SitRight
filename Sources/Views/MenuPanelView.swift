@@ -129,9 +129,9 @@ enum TimerRingPresentationText {
         case .accumulating:
             return timeText.map {
                 language.text("下次 \($0)", "Next at \($0)")
-            } ?? language.text("还没有安排下一次提醒", "No next reminder is scheduled")
+            } ?? language.text("还没有安排下一次提醒", "No reminder scheduled")
         case .delivering:
-            return language.text("正在准备本次提醒", "Preparing this reminder")
+            return language.text("正在准备本次提醒", "Preparing reminder")
         case .awaitingResponse:
             return timeText.map {
                 language.text("请在 \($0) 前开始", "Start before \($0)")
@@ -139,17 +139,17 @@ enum TimerRingPresentationText {
         case .snoozed:
             return timeText.map {
                 language.text("延后至 \($0)", "Snoozed until \($0)")
-            } ?? language.text("本次提醒已延后", "This reminder was snoozed")
+            } ?? language.text("本次提醒已延后", "Reminder snoozed")
         case .guiding:
             return isProactiveGuide
-                ? language.text("主动活动，提醒节奏继续", "Proactive break; reminder cadence continues")
+                ? language.text("主动活动，提醒节奏继续", "Original reminder unchanged")
                 : language.text("完成后开始下一轮", "The next cycle starts when you finish")
         case .overdue:
             return timeText.map {
                 language.text("等待至 \($0)", "Waiting until \($0)")
-            } ?? language.text("等待下次可用提醒", "Waiting for the next available reminder")
+            } ?? language.text("等待下次可用提醒", "Waiting for next reminder")
         case .paused:
-            return language.text("恢复后重新计时", "The timer restarts when resumed")
+            return language.text("恢复后重新计时", "Timer restarts when resumed")
         case .outsideSchedule:
             return timeText.map {
                 language.text("下次 \($0)", "Next at \($0)")

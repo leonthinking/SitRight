@@ -768,7 +768,7 @@ final class MenuPanelPresentationTests: XCTestCase {
                 NSSize(width: 300, height: 250),
                 maximumHeight: 552
             ),
-            NSSize(width: 420, height: 300)
+            NSSize(width: 420, height: 360)
         )
         XCTAssertEqual(
             ReminderPanelSizingPolicy.normalized(
@@ -788,13 +788,62 @@ final class MenuPanelPresentationTests: XCTestCase {
 
     @MainActor
     func testReminderPanelRetainsMeasuredSizeAfterHostingControllerAttachment() {
-        for isGuiding in [false, true] {
+        var cases: [(AppLanguage, Bool, Bool, String)] = [
+            (
+                .simplifiedChinese,
+                false,
+                false,
+                ReminderMessages.reminder(language: .simplifiedChinese)
+            ),
+            (
+                .simplifiedChinese,
+                true,
+                false,
+                ReminderMessages.guide(language: .simplifiedChinese)
+            ),
+            (
+                .english,
+                false,
+                false,
+                ReminderMessages.reminder(language: .english)
+            ),
+            (
+                .english,
+                true,
+                false,
+                ReminderMessages.guide(language: .english)
+            )
+        ]
+        let completionOutcomes: [ActivityGuideCompletionOutcome] = [
+            .reminderResponse,
+            .proactivePreservingCadence,
+            .proactiveSatisfyingUpcomingReminder,
+            .proactiveFollowingSchedule
+        ]
+        for language in AppLanguage.allCases {
+            cases.append(contentsOf: completionOutcomes.map { outcome in
+                (
+                    language,
+                    false,
+                    true,
+                    outcome.celebrationText(language: language)
+                )
+            })
+        }
+
+        for (language, isGuiding, isCompletion, message) in cases {
+            var layoutFrames: [ReminderPopupLayoutElement: CGRect] = [:]
             let guideEndsAt = isGuiding ? Date().addingTimeInterval(60) : nil
             let view = ReminderPopupView(
-                message: "按你的身体状况，换个姿势或活动 60 秒。",
+                message: message,
+                language: language,
                 isGuiding: isGuiding,
+                isCompletion: isCompletion,
                 guideEndsAt: guideEndsAt,
-                onAction: { _ in }
+                onAction: { _ in },
+                layoutObserver: { element, frame in
+                    layoutFrames[element] = frame
+                }
             )
             let hostingController = NSHostingController(rootView: view)
             hostingController.sizingOptions = ReminderPanelSizingPolicy.hostingSizingOptions
@@ -806,9 +855,12 @@ final class MenuPanelPresentationTests: XCTestCase {
             let contentSize = ReminderPanelSizingPolicy.normalized(measuredSize)
             let panel = ReminderPanelFactory.make(
                 contentViewController: hostingController,
-                contentSize: contentSize
+                contentSize: contentSize,
+                language: language
             )
 
+            panel.contentView?.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
             panel.contentView?.layoutSubtreeIfNeeded()
 
             XCTAssertEqual(
@@ -821,6 +873,64 @@ final class MenuPanelPresentationTests: XCTestCase {
                 contentSize.height,
                 ReminderPanelSizingPolicy.minimumHeight
             )
+            let expectedElements: [ReminderPopupLayoutElement]
+            if isCompletion {
+                expectedElements = [.message, .done]
+            } else if isGuiding {
+                expectedElements = [.message, .countdown, .cancel]
+            } else {
+                expectedElements = [
+                    .message,
+                    .completed,
+                    .snoozed,
+                    .pausedToday
+                ]
+            }
+            for element in expectedElements {
+                guard let frame = layoutFrames[element] else {
+                    XCTFail("Missing layout frame for \(element)")
+                    continue
+                }
+                XCTAssertGreaterThanOrEqual(
+                    frame.minX,
+                    -1,
+                    "\(element) must not be clipped at the leading edge"
+                )
+                XCTAssertLessThanOrEqual(
+                    frame.maxX,
+                    contentSize.width + 1,
+                    "\(element) must not be clipped at the trailing edge"
+                )
+            }
+            let visibleScrollViews = hostingController.view
+                .descendants(ofType: NSScrollView.self)
+                .filter { scrollView in
+                    sequence(first: scrollView as NSView?, next: { $0?.superview })
+                        .compactMap { $0 }
+                        .allSatisfy { !$0.isHidden }
+                        && scrollView.frame.height > 0
+                }
+            for scrollView in visibleScrollViews {
+                let documentHeight = scrollView.documentView?.bounds.height ?? 0
+                let viewportHeight = scrollView.contentView.bounds.height
+                let documentWidth = scrollView.documentView?.bounds.width ?? 0
+                let viewportWidth = scrollView.contentView.bounds.width
+                XCTAssertLessThanOrEqual(
+                    documentHeight,
+                    viewportHeight + 1,
+                    "Regular-size \(language.rawValue) popup "
+                        + "(guiding: \(isGuiding), completion: \(isCompletion)) "
+                        + "should not need scrolling; document \(documentHeight), "
+                        + "viewport \(viewportHeight)"
+                )
+                XCTAssertLessThanOrEqual(
+                    documentWidth,
+                    viewportWidth + 1,
+                    "Regular-size \(language.rawValue) popup content must not "
+                        + "be clipped horizontally; document \(documentWidth), "
+                        + "viewport \(viewportWidth)"
+                )
+            }
 
             if isGuiding {
                 RunLoop.main.run(until: Date().addingTimeInterval(1.1))
@@ -1011,21 +1121,80 @@ final class MenuPanelPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testReminderPopupUsesInternalScrollAtAccessibilitySize() {
+    func testEnglishReminderPopupUsesUsableInternalScrollAtAccessibilitySize() throws {
+        var layoutFrames: [ReminderPopupLayoutElement: CGRect] = [:]
         let view = ReminderPopupView(
-            message: "按你的身体状况，换个姿势或活动 60 秒。",
-            onAction: { _ in }
+            message: ReminderMessages.guide(language: .english),
+            language: .english,
+            isGuiding: true,
+            guideEndsAt: Date().addingTimeInterval(60),
+            onAction: { _ in },
+            layoutObserver: { element, frame in
+                layoutFrames[element] = frame
+            }
         )
         .environment(\.dynamicTypeSize, .accessibility5)
         let hostingController = NSHostingController(rootView: view)
         hostingController.sizingOptions = ReminderPanelSizingPolicy.hostingSizingOptions
-
-        let constrainedSize = hostingController.sizeThatFits(
-            in: NSSize(width: 420, height: 240)
+        let maximumHeight: CGFloat = 240
+        let measuredSize = hostingController.sizeThatFits(
+            in: ReminderPanelSizingPolicy.fittingConstraint(
+                maximumHeight: maximumHeight
+            )
         )
+        let contentSize = ReminderPanelSizingPolicy.normalized(
+            measuredSize,
+            maximumHeight: maximumHeight
+        )
+        let panel = ReminderPanelFactory.make(
+            contentViewController: hostingController,
+            contentSize: contentSize,
+            language: .english
+        )
+        defer { panel.close() }
 
-        XCTAssertEqual(constrainedSize.width, 420)
-        XCTAssertLessThanOrEqual(constrainedSize.height, 240)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        panel.contentView?.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(contentSize, NSSize(width: 420, height: maximumHeight))
+        let scrollView = try XCTUnwrap(
+            hostingController.view
+                .descendants(ofType: NSScrollView.self)
+                .first(where: { scrollView in
+                    sequence(first: scrollView as NSView?, next: { $0?.superview })
+                        .compactMap { $0 }
+                        .allSatisfy { !$0.isHidden }
+                        && scrollView.frame.height > 0
+                })
+        )
+        let documentHeight = scrollView.documentView?.bounds.height ?? 0
+        let viewportHeight = scrollView.contentView.bounds.height
+        let documentWidth = scrollView.documentView?.bounds.width ?? 0
+        let viewportWidth = scrollView.contentView.bounds.width
+        XCTAssertGreaterThan(documentHeight, viewportHeight)
+        XCTAssertLessThanOrEqual(documentWidth, viewportWidth + 1)
+
+        let maximumScrollY = max(documentHeight - viewportHeight, 0)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: maximumScrollY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        panel.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            maximumScrollY,
+            accuracy: 1
+        )
+        let cancelFrame = try XCTUnwrap(layoutFrames[.cancel])
+        let viewport = try XCTUnwrap(layoutFrames[.scrollViewport])
+        XCTAssertTrue(
+            viewport.intersects(cancelFrame),
+            "Cancel break must be visible after scrolling to the bottom; "
+                + "button \(cancelFrame), viewport \(viewport)"
+        )
+        XCTAssertGreaterThan(cancelFrame.width, 0)
+        XCTAssertGreaterThan(cancelFrame.height, 0)
     }
 
     func testSettingsValuePickerOptionsPreserveLegacyNonStepSelection() {
@@ -1158,14 +1327,22 @@ final class MenuPanelPresentationTests: XCTestCase {
             XCTAssertEqual(minimumTrailingEdge, maximumTrailingEdge, accuracy: 1)
 
             let selectedTitles = Set(visiblePopUpButtons.map(\.title))
-            let expectedLocalizedTitles: Set<String> = language == .simplifiedChinese
-                ? ["45 分钟", "10 次", "简体中文"]
-                : ["45 minutes", "10 times", "English"]
+            let expectedLocalizedTitles: Set<String>
+            switch language {
+            case .systemDefault:
+                expectedLocalizedTitles = language.resolvedLanguage() == .simplifiedChinese
+                    ? ["45 分钟", "10 次", "自动（跟随系统）"]
+                    : ["45 minutes", "10 times", "Automatic (System Default)"]
+            case .simplifiedChinese:
+                expectedLocalizedTitles = ["45 分钟", "10 次", "简体中文"]
+            case .english:
+                expectedLocalizedTitles = ["45 minutes", "10 times", "English"]
+            }
             XCTAssertTrue(expectedLocalizedTitles.isSubset(of: selectedTitles))
-            XCTAssertTrue(
-                Set(["09:00", "19:30", "11:30", "13:30"])
-                    .isSubset(of: selectedTitles)
-            )
+            let expectedTimes = Set([9 * 60, 19 * 60 + 30, 11 * 60 + 30, 13 * 60 + 30].map {
+                TimeFormatting.clockText(for: $0, locale: language.locale)
+            })
+            XCTAssertTrue(expectedTimes.isSubset(of: selectedTitles))
             for button in visiblePopUpButtons {
                 let frameInHostingView = button.convert(
                     button.bounds,
@@ -1188,6 +1365,7 @@ final class MenuPanelPresentationTests: XCTestCase {
             }
         }
 
+        try assertAligned(language: .systemDefault)
         try assertAligned(language: .simplifiedChinese)
         try assertAligned(language: .english)
 
@@ -1442,6 +1620,79 @@ final class MenuPanelPresentationTests: XCTestCase {
             200
         )
         XCTAssertLessThan(TimerRingLayout.accessibilityDiameter, 370 - 32)
+        XCTAssertEqual(TimerRingLayout.compactSubtitleLineLimit, 2)
+        XCTAssertLessThan(
+            TimerRingLayout.compactSubtitleWidth,
+            TimerRingLayout.diameter - 2 * TimerRingLayout.strokeInset
+        )
+    }
+
+    func testTimerRingEnglishSubtitlesFitConfiguredTwoLineArea() {
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        let lineHeight = ceil(font.boundingRectForFont.height)
+        let longestSubtitles = [
+            "The next cycle starts when you finish",
+            "Original reminder unchanged",
+            "Waiting for next reminder",
+            "Waiting for reminder hours",
+            "Timer restarts when resumed"
+        ]
+
+        for subtitle in longestSubtitles {
+            let bounds = (subtitle as NSString).boundingRect(
+                with: NSSize(
+                    width: TimerRingLayout.compactSubtitleWidth,
+                    height: .greatestFiniteMagnitude
+                ),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: font]
+            )
+            XCTAssertLessThanOrEqual(
+                ceil(bounds.height),
+                lineHeight * CGFloat(TimerRingLayout.compactSubtitleLineLimit),
+                "English timer subtitle should fit without truncation: \(subtitle)"
+            )
+        }
+    }
+
+    func testTimerRingEnglishTitlesFitAtConfiguredMinimumScale() {
+        let font = NSFont.systemFont(ofSize: 28, weight: .bold)
+        let titles = [
+            "Time to move",
+            "Snoozed 05:00",
+            "Waiting",
+            "Off hours",
+            "Paused",
+            "Off"
+        ]
+
+        for title in titles {
+            let width = (title as NSString).size(withAttributes: [.font: font]).width
+            XCTAssertLessThanOrEqual(
+                width * TimerRingLayout.compactTitleMinimumScale,
+                TimerRingLayout.compactTitleWidth,
+                "English timer title should fit inside the ring: \(title)"
+            )
+        }
+    }
+
+    func testTimerRingAccessibilityValueUsesSelectedLanguagePunctuation() {
+        XCTAssertEqual(
+            TimerRingAccessibility.value(
+                title: "04:32",
+                subtitle: "Next at 10:30 AM",
+                language: .english
+            ),
+            "04:32, Next at 10:30 AM"
+        )
+        XCTAssertEqual(
+            TimerRingAccessibility.value(
+                title: "04:32",
+                subtitle: "下次 10:30",
+                language: .simplifiedChinese
+            ),
+            "04:32，下次 10:30"
+        )
     }
 
     func testTodayProgressPresentationCollapsesEmptyBreakdown() {

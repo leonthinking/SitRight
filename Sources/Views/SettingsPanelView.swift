@@ -474,10 +474,16 @@ struct SettingsPanelView: View {
                     }
 
                     if settingsStore.settings.dailyTarget > suggestedDailyMaximum {
+                        let scheduledReminderCount = language.quantity(
+                            suggestedDailyMaximum,
+                            simplifiedChineseUnit: "次活动提醒",
+                            englishSingular: "activity reminder",
+                            englishPlural: "activity reminders"
+                        )
                         StatusMessage(
                             text: language.text(
-                                "当前日程大约可安排 \(suggestedDailyMaximum) 次活动提醒；目标仍可保留。",
-                                "Your schedule allows about \(suggestedDailyMaximum) activity reminders; you can still keep this goal."
+                                "当前日程大约可安排 \(scheduledReminderCount)；目标仍可保留。",
+                                "Your schedule allows about \(scheduledReminderCount); you can still keep this goal."
                             ),
                             systemImage: "info.circle",
                             color: .secondary
@@ -533,7 +539,7 @@ struct SettingsPanelView: View {
                         selection: binding(\.language)
                     ) {
                         ForEach(AppLanguage.allCases) { option in
-                            Text(option.displayName)
+                            Text(option.displayName(presentationLanguage: language))
                                 .tag(option)
                         }
                     }
@@ -1210,6 +1216,8 @@ private struct SettingsValuePickerRow<Selection: Hashable, Options: View>: View 
 }
 
 private struct TimePickerRow: View {
+    @Environment(\.locale) private var locale
+
     let title: String
     @Binding var selection: Int
     let range: ClosedRange<Int>
@@ -1225,7 +1233,7 @@ private struct TimePickerRow: View {
                 ),
                 id: \.self
             ) { minutes in
-                Text(TimeFormatting.clockText(for: minutes))
+                Text(TimeFormatting.clockText(for: minutes, locale: locale))
                     .tag(minutes)
             }
         }

@@ -61,7 +61,10 @@ final class WidgetSnapshotTests: XCTestCase {
         XCTAssertTrue(widgetSource.contains("entries: [entry, rolloverEntry]"))
         XCTAssertTrue(widgetSource.contains("HeatmapPresentation.monthLabelPlacements"))
         XCTAssertTrue(widgetSource.contains("todayStrokeColor(for: cell.state)"))
-        XCTAssertTrue(widgetSource.contains("活跃 \\(summary.activeDays) 天，达标 \\(summary.completedDays) 天"))
+        XCTAssertTrue(widgetSource.contains("englishSingular: \"active day\""))
+        XCTAssertTrue(widgetSource.contains("englishPlural: \"active days\""))
+        XCTAssertTrue(widgetSource.contains("englishSingular: \"goal day\""))
+        XCTAssertTrue(widgetSource.contains("englishPlural: \"goal days\""))
     }
 
     func testDueSnapshotProgressIsCompleteWhenNoNextReminderDate() {
@@ -130,6 +133,7 @@ final class WidgetSnapshotTests: XCTestCase {
 
         XCTAssertEqual(decoded.state, .running)
         XCTAssertEqual(decoded.language, .simplifiedChinese)
+        XCTAssertEqual(decoded.statusText, "打开 SitRight 开始提醒")
         XCTAssertEqual(decoded.intervalMinutes, 50)
         XCTAssertEqual(decoded.dailyTarget, 8)
         XCTAssertEqual(decoded.completedCount, 0)
@@ -150,7 +154,7 @@ final class WidgetSnapshotTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(WidgetSnapshot.self, from: data)
 
-        XCTAssertEqual(decoded.language, .simplifiedChinese)
+        XCTAssertEqual(decoded.language, .systemDefault)
         XCTAssertEqual(decoded.completedCount, 3)
     }
 
@@ -177,6 +181,10 @@ final class WidgetSnapshotTests: XCTestCase {
             WidgetSnapshotStore.fileName
         )
         let chineseData = try Data(contentsOf: snapshotURL)
+        XCTAssertEqual(
+            WidgetSnapshotStore.load(storageDirectory: directory).language,
+            .systemDefault
+        )
 
         settings.language = .english
         controller.publish(

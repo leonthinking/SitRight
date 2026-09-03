@@ -17,7 +17,7 @@ Current first-version capabilities include:
 - Daily reminder-completion target, reminder response rate, manual activity count, and legacy unclassified history.
 - Launch-at-login toggle.
 - A display-only WidgetKit desktop widget for today progress, reminder state, and rolling 90-day activity history.
-- A persisted in-app Simplified Chinese / English preference shared by app-owned surfaces, notifications, and Widget content.
+- A persisted in-app system-default / Simplified Chinese / English preference shared by app-owned surfaces, notifications, and Widget content.
 
 The app is intentionally lightweight and local-first. There is no backend service in this repository.
 
@@ -60,8 +60,18 @@ The app is intentionally lightweight and local-first. There is no backend servic
 
 `ReminderEngine.start()` is called during container initialization.
 
+`ReminderPresenter` keeps automatic hosting preferred-size synchronization
+disabled. Reminder panels use a fixed 420 pt width, a 360 pt regular minimum
+height, a 720 pt maximum, and a visible-screen clamp. That regular height fits
+the complete Simplified Chinese and English reminder, guide, and completion
+content without scrolling; small screens and accessibility text sizes retain
+the internal scroll fallback. Countdown and language updates replace content
+without remeasuring or changing the already visible panel size.
+
 `AppSettings.language` is an additive, default-tolerant language preference.
-Existing settings without the field continue in Simplified Chinese. Language
+New, missing, and unknown values default to the stable `system_default` mode,
+which resolves Chinese system locales to Simplified Chinese and other system
+locales to English. Existing explicit `zh-Hans` and `en` choices are preserved. Language
 changes update product copy and the shared Widget snapshot without entering the
 reminder-schedule change set, so cadence and activity data are not reset. Native
 macOS menu commands and Sparkle's standard updater UI may continue to follow the
@@ -162,7 +172,7 @@ The widget code lives in `Widget/`.
 - The quarterly Widget shows localized month markers and a completion legend using the original compact square-cell layout.
 - Leading padding before the rolling 90-day range and the remaining future weekdays through the end of today's calendar week use matching non-statistical decorative-gray placeholders, keeping both outer weeks visually complete and symmetric. Their fill is deliberately lighter than a real inactive day so they do not imply missed activity. These decorative cells have no date and never enter activity totals, active/completed days, streaks, month markers, persistence, or accessibility summaries. Today is outlined. Inactive paused/non-workdays use a neutral outline. Dates without eligibility/history remain visually indistinguishable from ordinary inactive dates because no first-tracked date is persisted.
 - `WidgetSyncController` writes only when Widget-relevant snapshot fields change, then reloads the quarterly Widget kind.
-- `WidgetSnapshot.language` carries the app language across the App Group boundary; missing or unknown values fall back to Simplified Chinese without invalidating the remaining snapshot.
+- `WidgetSnapshot.language` carries the app language preference across the App Group boundary. Unknown values fall back to `system_default` without invalidating the remaining snapshot; a missing field identifies a pre-language snapshot and temporarily remains Simplified Chinese so its legacy stored status text cannot become mixed-language before the App refreshes this derived cache.
 
 Widget behavior depends on matching:
 

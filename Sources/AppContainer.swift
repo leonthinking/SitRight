@@ -34,10 +34,14 @@ final class AppContainer: ObservableObject {
 
         let settingsStore = SettingsStore()
         let statsStore = StatsStore(initialErrorMessage: storagePreparationError)
-        let notificationManager = NotificationManager()
+        let notificationManager = NotificationManager(
+            language: settingsStore.settings.language
+        )
         let launchAtLoginController = LaunchAtLoginController()
         let updateController = UpdateController(startsUpdater: false)
-        let reminderPresenter = ReminderPresenter()
+        let reminderPresenter = ReminderPresenter(
+            language: settingsStore.settings.language
+        )
         let widgetSyncController = WidgetSyncController()
         let reminderSessionStateStore = ReminderSessionStateStore()
 

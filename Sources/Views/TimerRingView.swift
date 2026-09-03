@@ -6,6 +6,10 @@ enum TimerRingLayout {
     static let lineWidth: CGFloat = 10
     static let strokeInset = lineWidth / 2
     static let partialLineCap: CGLineCap = .butt
+    static let compactSubtitleWidth: CGFloat = 132
+    static let compactSubtitleLineLimit = 2
+    static let compactTitleWidth = diameter - 28
+    static let compactTitleMinimumScale: CGFloat = 0.65
 
     static func diameter(usesAccessibilityLayout: Bool) -> CGFloat {
         usesAccessibilityLayout ? accessibilityDiameter : diameter
@@ -31,6 +35,16 @@ enum TimerRingProgress {
     }
 }
 
+enum TimerRingAccessibility {
+    static func value(
+        title: String,
+        subtitle: String,
+        language: AppLanguage
+    ) -> String {
+        language.text("\(title)，\(subtitle)", "\(title), \(subtitle)")
+    }
+}
+
 struct TimerRingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -42,6 +56,7 @@ struct TimerRingView: View {
     let subtitle: String
     let state: ReminderRunState
     let phase: ReminderPhase
+    var language: AppLanguage = .simplifiedChinese
 
     var body: some View {
         VStack(spacing: usesAccessibilityLayout ? 8 : 0) {
@@ -66,7 +81,11 @@ struct TimerRingView: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(contextLabel)
-        .accessibilityValue("\(title)，\(subtitle)")
+        .accessibilityValue(TimerRingAccessibility.value(
+            title: title,
+            subtitle: subtitle,
+            language: language
+        ))
     }
 
     private var ringSurface: some View {
@@ -104,14 +123,18 @@ struct TimerRingView: View {
                         )
                     )
                     .monospacedDigit()
-                    .minimumScaleFactor(0.65)
+                    .minimumScaleFactor(TimerRingLayout.compactTitleMinimumScale)
                     .lineLimit(1)
+                    .frame(maxWidth: TimerRingLayout.compactTitleWidth)
 
                 if !usesAccessibilityLayout {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(TimerRingLayout.compactSubtitleLineLimit)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: TimerRingLayout.compactSubtitleWidth)
                 }
             }
             .padding(.horizontal, 14)

@@ -16,28 +16,82 @@ enum ReminderPopupActionLayout {
     }
 }
 
+enum ReminderPopupLayoutElement: Hashable {
+    case scrollViewport
+    case message
+    case countdown
+    case cancel
+    case done
+    case completed
+    case snoozed
+    case pausedToday
+}
+
+private enum ReminderPopupLayoutCoordinateSpace {
+    static let name = "ReminderPopupLayout"
+}
+
+private struct ReminderPopupLayoutReporter: ViewModifier {
+    let element: ReminderPopupLayoutElement
+    let observer: ((ReminderPopupLayoutElement, CGRect) -> Void)?
+
+    func body(content: Content) -> some View {
+        content.background {
+            if let observer {
+                GeometryReader { proxy in
+                    let frame = proxy.frame(
+                        in: .named(ReminderPopupLayoutCoordinateSpace.name)
+                    )
+                    Color.clear
+                        .onAppear {
+                            observer(element, frame)
+                        }
+                        .onChange(of: frame) { _, newFrame in
+                            observer(element, newFrame)
+                        }
+                }
+            }
+        }
+    }
+}
+
+private extension View {
+    func reportReminderPopupLayout(
+        _ element: ReminderPopupLayoutElement,
+        to observer: ((ReminderPopupLayoutElement, CGRect) -> Void)?
+    ) -> some View {
+        modifier(ReminderPopupLayoutReporter(element: element, observer: observer))
+    }
+}
+
 struct ReminderPopupView: View {
     let message: String
+    let language: AppLanguage
     let isGuiding: Bool
     let isCompletion: Bool
     let guideEndsAt: Date?
     let onAction: (ReminderAction) -> Void
+    let layoutObserver: ((ReminderPopupLayoutElement, CGRect) -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(
         message: String,
+        language: AppLanguage = .simplifiedChinese,
         isGuiding: Bool = false,
         isCompletion: Bool = false,
         guideEndsAt: Date? = nil,
-        onAction: @escaping (ReminderAction) -> Void
+        onAction: @escaping (ReminderAction) -> Void,
+        layoutObserver: ((ReminderPopupLayoutElement, CGRect) -> Void)? = nil
     ) {
         self.message = message
+        self.language = language
         self.isGuiding = isGuiding
         self.isCompletion = isCompletion
         self.guideEndsAt = guideEndsAt
         self.onAction = onAction
+        self.layoutObserver = layoutObserver
     }
 
     var body: some View {
@@ -49,9 +103,11 @@ struct ReminderPopupView: View {
                 popupContent
                     .padding(.trailing, 4)
             }
+            .reportReminderPopupLayout(.scrollViewport, to: layoutObserver)
         }
         .padding(28)
         .frame(width: ReminderPanelSizingPolicy.width)
+        .coordinateSpace(name: ReminderPopupLayoutCoordinateSpace.name)
         .background(.regularMaterial)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: message)
         .onExitCommand {
@@ -74,8 +130,10 @@ struct ReminderPopupView: View {
             VStack(spacing: 8) {
                 Text(
                     isCompletion
-                        ? "活动完成"
-                        : (isGuiding ? "活动进行中" : "到活动时间了")
+                        ? language.text("活动完成", "Break complete")
+                        : (isGuiding
+                            ? language.text("活动进行中", "Break in progress")
+                            : language.text("到活动时间了", "Time to move"))
                 )
                     .font(.title.weight(.bold))
                     .fontDesign(.rounded)
@@ -83,39 +141,54 @@ struct ReminderPopupView: View {
                     .font(.title3.weight(.medium))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .reportReminderPopupLayout(.message, to: layoutObserver)
 
                 if isGuiding, let guideEndsAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let remaining = max(Int(ceil(guideEndsAt.timeIntervalSince(context.date))), 0)
-                        Text("还剩 \(remaining) 秒")
+                        let remainingText = language.quantity(
+                            remaining,
+                            simplifiedChineseUnit: "秒",
+                            englishSingular: "second",
+                            englishPlural: "seconds"
+                        )
+                        Text(language.text("还剩 \(remainingText)", "\(remainingText) remaining"))
                             .font(.title2.monospacedDigit().weight(.semibold))
-                            .accessibilityLabel("活动剩余时间")
-                            .accessibilityValue("\(remaining) 秒")
+                            .accessibilityLabel(language.text("活动剩余时间", "Break time remaining"))
+                            .accessibilityValue(remainingText)
+                            .reportReminderPopupLayout(.countdown, to: layoutObserver)
                     }
                 }
             }
 
             actionSurface
         }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
     private var actionSurface: some View {
         if isCompletion {
-            Button("知道了") {
+            Button(language.text("知道了", "Done")) {
                 onAction(.dismissed)
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
-            .accessibilityHint("关闭活动完成反馈")
+            .reportReminderPopupLayout(.done, to: layoutObserver)
+            .accessibilityHint(language.text(
+                "关闭活动完成反馈",
+                "Close the break completion message"
+            ))
         } else if isGuiding {
             Button {
                 onAction(.dismissed)
             } label: {
-                Label("取消活动", systemImage: "xmark.circle")
+                Label(language.text("取消活动", "Cancel break"), systemImage: "xmark.circle")
             }
             .buttonStyle(.bordered)
             .keyboardShortcut(.cancelAction)
+            .reportReminderPopupLayout(.cancel, to: layoutObserver)
         } else if dynamicTypeSize.isAccessibilitySize {
             verticalActions
         } else {
@@ -161,31 +234,37 @@ struct ReminderPopupView: View {
                 onAction(.completed)
             } label: {
                 Label(
-                    "开始 1 分钟活动",
+                    language.text("开始 1 分钟活动", "Start a 1-minute break"),
                     systemImage: "arrow.triangle.2.circlepath"
                 )
                 .frame(maxWidth: fillsWidth ? .infinity : nil)
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
+            .reportReminderPopupLayout(.completed, to: layoutObserver)
 
         case .snoozed:
             Button {
                 onAction(.snoozed)
             } label: {
-                Label("延后 5 分钟", systemImage: "clock.arrow.circlepath")
+                Label(
+                    language.text("延后 5 分钟", "Remind me in 5 minutes"),
+                    systemImage: "clock.arrow.circlepath"
+                )
                     .frame(maxWidth: fillsWidth ? .infinity : nil)
             }
             .buttonStyle(.bordered)
+            .reportReminderPopupLayout(.snoozed, to: layoutObserver)
 
         case .pausedToday:
             Button {
                 onAction(.pausedToday)
             } label: {
-                Label("暂停今天", systemImage: "moon")
+                Label(language.text("暂停今天", "Pause for today"), systemImage: "moon")
                     .frame(maxWidth: fillsWidth ? .infinity : nil)
             }
             .buttonStyle(.bordered)
+            .reportReminderPopupLayout(.pausedToday, to: layoutObserver)
 
         case .dismissed:
             EmptyView()

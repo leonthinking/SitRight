@@ -56,6 +56,11 @@ targets:
     sources:
       - path: Widget
       - path: Sources/Shared
+      - path: Sources/Resources
+        includes:
+          - en.lproj/Localizable.strings
+          - zh-Hans.lproj/Localizable.strings
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.leon.SitRight.SitRightWidgetExtension

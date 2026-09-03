@@ -15,7 +15,11 @@ enum ReminderPanelMeasurementTrigger: Equatable {
 
 enum ReminderPanelSizingPolicy {
     static let width: CGFloat = 420
-    static let minimumHeight: CGFloat = 300
+    // English guide and reminder copy needs one more wrapped line than the
+    // compact Chinese presentation. Keep enough room for the complete
+    // regular-size content so the ScrollView remains an accessibility and
+    // small-screen fallback instead of the default English layout.
+    static let minimumHeight: CGFloat = 360
     static let maximumContentHeight: CGFloat = 720
     static let screenEdgeMargin: CGFloat = 48
     static let hostingSizingOptions: NSHostingSizingOptions = []
@@ -59,7 +63,8 @@ enum ReminderPanelSizingPolicy {
 enum ReminderPanelFactory {
     static func make(
         contentViewController: NSViewController,
-        contentSize: NSSize
+        contentSize: NSSize,
+        language: AppLanguage = .simplifiedChinese
     ) -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: contentSize),
@@ -68,7 +73,7 @@ enum ReminderPanelFactory {
             defer: false
         )
 
-        panel.title = "SitRight 坐正"
+        panel.title = language.text("SitRight 坐正", "SitRight")
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = true
@@ -126,10 +131,17 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
     private var completion: ((ReminderAction) -> Void)?
     private var automaticDismissTask: Task<Void, Never>?
     private var pendingGuideDeadline: Date?
+    private var presentedCompletionOutcome: ActivityGuideCompletionOutcome?
     private let guidePresentationGate = GuidePresentationGate()
+    private var language: AppLanguage
+
+    init(language: AppLanguage = .simplifiedChinese) {
+        self.language = language
+        super.init()
+    }
 
     func present(message: String, completion: @escaping (ReminderAction) -> Void) {
-        present(content: ReminderPopupView(message: message) { [weak self] action in
+        present(content: ReminderPopupView(message: message, language: language) { [weak self] action in
             self?.handlePresentedAction(action)
         }, completion: completion)
     }
@@ -143,7 +155,8 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
             }
             self.pendingGuideDeadline = nil
             self.present(content: ReminderPopupView(
-                message: "按你的身体状况，换个姿势或活动 60 秒。",
+                message: ReminderMessages.guide(language: self.language),
+                language: self.language,
                 isGuiding: true,
                 guideEndsAt: currentDeadline
             ) { [weak self] action in
@@ -172,6 +185,7 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
         let currentView = hostingController.rootView
         hostingController.rootView = ReminderPopupView(
             message: currentView.message,
+            language: language,
             isGuiding: true,
             guideEndsAt: endsAt,
             onAction: currentView.onAction
@@ -185,6 +199,7 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
     func presentGuideCompletion(message: String) {
         guard let panel else { return }
 
+        presentedCompletionOutcome = nil
         completion = nil
         automaticDismissTask?.cancel()
 
@@ -192,6 +207,7 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
         let hostingController = NSHostingController(
             rootView: ReminderPopupView(
                 message: message,
+                language: language,
                 isCompletion: true,
                 onAction: { [weak self] _ in
                     self?.dismissGuideCompletion()
@@ -218,7 +234,19 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
             }
             self.panel = nil
             self.automaticDismissTask = nil
+            self.presentedCompletionOutcome = nil
             panel.close()
+        }
+    }
+
+    func presentGuideCompletion(
+        outcome: ActivityGuideCompletionOutcome,
+        language: AppLanguage
+    ) {
+        self.language = language
+        presentGuideCompletion(message: outcome.celebrationText(language: language))
+        if panel != nil {
+            presentedCompletionOutcome = outcome
         }
     }
 
@@ -227,6 +255,7 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
 
         automaticDismissTask?.cancel()
         automaticDismissTask = nil
+        presentedCompletionOutcome = nil
         let panelToClose = panel
         panel = nil
         panelToClose?.close()
@@ -240,8 +269,43 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
         guidePresentationGate.popoverDidClose()
     }
 
+    func setLanguage(_ language: AppLanguage) {
+        guard self.language != language else { return }
+        self.language = language
+
+        guard let panel,
+              let hostingController =
+                panel.contentViewController as? NSHostingController<ReminderPopupView> else {
+            return
+        }
+
+        let contentSize = panel.contentRect(forFrameRect: panel.frame).size
+        let currentView = hostingController.rootView
+        let localizedMessage: String
+        if currentView.isCompletion {
+            localizedMessage = presentedCompletionOutcome?.celebrationText(
+                language: language
+            ) ?? currentView.message
+        } else if currentView.isGuiding {
+            localizedMessage = ReminderMessages.guide(language: language)
+        } else {
+            localizedMessage = ReminderMessages.reminder(language: language)
+        }
+        hostingController.rootView = ReminderPopupView(
+            message: localizedMessage,
+            language: language,
+            isGuiding: currentView.isGuiding,
+            isCompletion: currentView.isCompletion,
+            guideEndsAt: currentView.guideEndsAt,
+            onAction: currentView.onAction
+        )
+        panel.title = language.text("SitRight 坐正", "SitRight")
+        panel.setContentSize(contentSize)
+    }
+
     private func present(content: some View, completion: @escaping (ReminderAction) -> Void) {
         dismiss()
+        presentedCompletionOutcome = nil
         self.completion = completion
 
         let hostingController = NSHostingController(rootView: content)
@@ -256,7 +320,8 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
         )
         let panel = ReminderPanelFactory.make(
             contentViewController: hostingController,
-            contentSize: contentSize
+            contentSize: contentSize,
+            language: language
         )
 
         panel.delegate = self
@@ -302,6 +367,7 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
         pendingGuideDeadline = nil
         automaticDismissTask?.cancel()
         automaticDismissTask = nil
+        presentedCompletionOutcome = nil
         completion = nil
         let panelToClose = panel
         panel = nil
@@ -327,6 +393,7 @@ final class ReminderPresenter: NSObject, NSWindowDelegate {
         }
         automaticDismissTask?.cancel()
         automaticDismissTask = nil
+        presentedCompletionOutcome = nil
         panel = nil
     }
 }

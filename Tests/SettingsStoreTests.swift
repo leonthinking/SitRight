@@ -13,6 +13,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.settings.notificationsEnabled)
         XCTAssertFalse(store.settings.soundEnabled)
         XCTAssertFalse(store.settings.popupEnabled)
+        XCTAssertEqual(store.settings.language, .systemDefault)
     }
 
     func testIntervalShortcutUpdatesDoNotReenterPublishedSetter() {
@@ -87,6 +88,60 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.settings.intervalMinutes, 45)
         XCTAssertEqual(store.settings.dailyTarget, 6)
         XCTAssertTrue(store.settings.menuBarCountdownEnabled)
+        XCTAssertEqual(store.settings.language, .systemDefault)
+    }
+
+    func testLanguagePreferencePersistsWithoutChangingReminderCadenceContract() {
+        let suiteName = "SitRightTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let store = SettingsStore(defaults: defaults)
+        let baseline = store.settings
+
+        store.update { $0.language = .english }
+
+        XCTAssertEqual(store.settings.language, .english)
+        XCTAssertFalse(
+            store.settings.hasReminderScheduleChange(comparedTo: baseline)
+        )
+        XCTAssertEqual(
+            SettingsStore(defaults: defaults).settings.language,
+            .english
+        )
+    }
+
+    func testUnknownFutureLanguageFallsBackWithoutDiscardingOtherSettings() throws {
+        let decoded = try JSONDecoder().decode(
+            AppSettings.self,
+            from: Data(#"{"language":"future-language","intervalMinutes":45}"#.utf8)
+        )
+
+        XCTAssertEqual(decoded.language, .systemDefault)
+        XCTAssertEqual(decoded.intervalMinutes, 45)
+    }
+
+    func testExistingExplicitLanguageSelectionsRemainStable() throws {
+        for language in [AppLanguage.simplifiedChinese, .english] {
+            let decoded = try JSONDecoder().decode(
+                AppSettings.self,
+                from: Data(#"{"language":"\#(language.rawValue)"}"#.utf8)
+            )
+
+            XCTAssertEqual(decoded.language, language)
+        }
+    }
+
+    func testSystemDefaultUsesStableEncodedValue() throws {
+        let data = try JSONEncoder().encode(AppSettings())
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+
+        XCTAssertEqual(object["language"] as? String, "system_default")
+        XCTAssertEqual(
+            try JSONDecoder().decode(AppSettings.self, from: data).language,
+            .systemDefault
+        )
     }
 
     func testMenuBarCountdownSettingPersists() {
@@ -147,6 +202,10 @@ final class SettingsStoreTests: XCTestCase {
 
         updated = baseline
         updated.launchAtLogin = true
+        XCTAssertFalse(updated.hasReminderScheduleChange(comparedTo: baseline))
+
+        updated = baseline
+        updated.language = .english
         XCTAssertFalse(updated.hasReminderScheduleChange(comparedTo: baseline))
     }
 

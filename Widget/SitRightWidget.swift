@@ -64,6 +64,7 @@ struct SitRightWidgetEntryView: View {
 
     var body: some View {
         largeView
+            .environment(\.locale, language.locale)
             .containerBackground(.background, for: .widget)
     }
 
@@ -72,7 +73,10 @@ struct SitRightWidgetEntryView: View {
             HStack(alignment: .firstTextBaseline) {
                 header
                 Spacer()
-                Text("本周 \(weekCompletedCount) · 连续 \(streakDays) 天")
+                Text(language.text(
+                    "本周 \(weekCompletedCount) · 连续 \(streakDays) 天",
+                    "This week \(weekCompletedCount) · \(streakDays)-day streak"
+                ))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
             }
@@ -81,25 +85,34 @@ struct SitRightWidgetEntryView: View {
 
             HStack(spacing: 8) {
                 statCard(
-                    title: "今日活动",
+                    title: language.text("今日活动", "Today's activity"),
                     value: "\(today.dailyGoalActivityCount)/\(dailyTarget)",
                     systemImage: "checkmark.circle.fill"
                 )
                 statCard(
-                    title: "提醒后活动",
-                    value: "\(today.reminderCompletedCount) 次",
+                    title: language.text("提醒后活动", "Reminder breaks"),
+                    value: language.text(
+                        "\(today.reminderCompletedCount) 次",
+                        "\(today.reminderCompletedCount)"
+                    ),
                     systemImage: "bell.badge.fill"
                 )
                 statCard(
-                    title: "主动活动",
-                    value: "\(today.qualifiedProactiveCount) 次",
+                    title: language.text("主动活动", "Proactive breaks"),
+                    value: language.text(
+                        "\(today.qualifiedProactiveCount) 次",
+                        "\(today.qualifiedProactiveCount)"
+                    ),
                     systemImage: "arrow.triangle.2.circlepath"
                 )
             }
 
             if today.legacyUnclassifiedCount > 0 {
                 Label(
-                    "未分类记录 \(today.legacyUnclassifiedCount) 次",
+                    language.text(
+                        "未分类记录 \(today.legacyUnclassifiedCount) 次",
+                        "Unclassified records: \(today.legacyUnclassifiedCount)"
+                    ),
                     systemImage: "archivebox"
                 )
                 .font(.caption)
@@ -107,13 +120,14 @@ struct SitRightWidgetEntryView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("最近 3 个月")
+                Text(language.text("最近 3 个月", "Last 3 months"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 HeatmapView(
                     history: entry.history,
                     endDate: entry.date,
-                    dayCount: 90
+                    dayCount: 90,
+                    language: language
                 )
                     .frame(maxHeight: .infinity)
             }
@@ -126,7 +140,7 @@ struct SitRightWidgetEntryView: View {
             Image(systemName: "timer")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.green)
-            Text("SitRight 坐正")
+            Text(language.text("SitRight 坐正", "SitRight"))
                 .font(.headline)
                 .lineLimit(1)
         }
@@ -143,7 +157,7 @@ struct SitRightWidgetEntryView: View {
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("提醒状态")
+        .accessibilityLabel(language.text("提醒状态", "Reminder status"))
         .accessibilityValue(statusText)
     }
 
@@ -151,27 +165,34 @@ struct SitRightWidgetEntryView: View {
         switch entry.snapshot.phase {
         case .accumulating:
             return entry.snapshot.nextReminderAt.map {
-                "下次提醒 \($0.formatted(date: .omitted, time: .shortened))"
-            } ?? "正在累计活动间隔"
+                language.text(
+                    "下次提醒 \(language.formattedTime($0))",
+                    "Next reminder at \(language.formattedTime($0))"
+                )
+            } ?? language.text("正在累计活动间隔", "Building up to the next break")
         case .delivering:
-            return "正在发送活动提醒"
+            return language.text("正在发送活动提醒", "Sending activity reminder")
         case .awaitingResponse:
-            return "等待开始 1 分钟活动"
+            return language.text("等待开始 1 分钟活动", "Waiting to start a 1-minute break")
         case .snoozed:
-            return "已延后 5 分钟"
+            return language.text("已延后 5 分钟", "Reminder snoozed for 5 minutes")
         case .guiding:
-            return "活动进行中"
+            return language.text("活动进行中", "Break in progress")
         case .overdue:
-            return "活动时间已到"
+            return language.text("活动时间已到", "It is time to move")
         case .paused:
-            return "已暂停"
+            return language.text("已暂停", "Paused")
         case .outsideSchedule:
-            return "非提醒时段"
+            return language.text("非提醒时段", "Outside reminder hours")
         case .disabled:
-            return "提醒已关闭"
+            return language.text("提醒已关闭", "Reminders are off")
         case nil:
             return entry.snapshot.statusText
         }
+    }
+
+    private var language: AppLanguage {
+        entry.snapshot.language
     }
 
     private var statusSymbol: String {
@@ -224,8 +245,13 @@ private struct HeatmapView: View {
     let history: ActivityHistory
     let endDate: Date
     let dayCount: Int
+    let language: AppLanguage
 
-    private let calendar = Calendar.current
+    private var calendar: Calendar {
+        var calendar = Calendar.current
+        calendar.locale = language.locale
+        return calendar
+    }
     private let gap: CGFloat = 4
     private let maximumCornerRadius: CGFloat = 4
 
@@ -247,7 +273,7 @@ private struct HeatmapView: View {
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("活动热力图")
+        .accessibilityLabel(language.text("活动热力图", "Activity heatmap"))
         .accessibilityValue(accessibilitySummary(for: presentation))
     }
 
@@ -339,13 +365,13 @@ private struct HeatmapView: View {
 
     private var heatmapLegend: some View {
         HStack(spacing: 4) {
-            Text("少")
+            Text(language.text("少", "Less"))
             ForEach(HeatmapIntensity.allCases, id: \.rawValue) { intensity in
                 RoundedRectangle(cornerRadius: 2)
                     .fill(color(for: intensity))
                     .frame(width: 9, height: 9)
             }
-            Text("达标")
+            Text(language.text("达标", "Goal"))
         }
         .font(.system(size: 8, weight: .medium))
         .foregroundStyle(.secondary)
@@ -389,7 +415,28 @@ private struct HeatmapView: View {
 
     private func accessibilitySummary(for presentation: HeatmapPresentation) -> String {
         let summary = presentation.summary
-        return "最近 \(dayCount) 天，活动 \(summary.activityTotal) 次，活跃 \(summary.activeDays) 天，达标 \(summary.completedDays) 天"
+        let activityText = language.quantity(
+            summary.activityTotal,
+            simplifiedChineseUnit: "次活动",
+            englishSingular: "activity",
+            englishPlural: "activities"
+        )
+        let activeDayText = language.quantity(
+            summary.activeDays,
+            simplifiedChineseUnit: "个活跃日",
+            englishSingular: "active day",
+            englishPlural: "active days"
+        )
+        let completedDayText = language.quantity(
+            summary.completedDays,
+            simplifiedChineseUnit: "个达标日",
+            englishSingular: "goal day",
+            englishPlural: "goal days"
+        )
+        return language.text(
+            "最近 \(dayCount) 天，\(activityText)，\(activeDayText)，\(completedDayText)",
+            "Last \(dayCount) days: \(activityText), \(activeDayText), \(completedDayText)"
+        )
     }
 }
 

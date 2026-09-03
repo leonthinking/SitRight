@@ -30,6 +30,38 @@ No tracked tasks yet.
 
 ## Done
 
+### TASK-20260903-system-default-language
+
+- Status: Done
+- Goal: Add a persisted `system_default` language preference, make it the default, and resolve all app-owned, notification, and Widget copy to Simplified Chinese on Chinese systems or English otherwise.
+- Impacted areas: App language resolution, settings compatibility, notification categories, Widget snapshots, settings presentation, README/project context, packaged App validation, and regression coverage.
+- Verification: `swift test --disable-sandbox` passed 284/284 with a repository-local module cache; `git diff --check` passed; the signed App/Widget build and transaction install to `/Applications/SitRight.app` succeeded with TeamIdentifier `973KFG9CL9` and the required App Group. The installed Settings window preserved the existing explicit English preference and exposed exactly `Automatic (System Default)`, `简体中文`, and `English`. Two independent adversarial reviews found and drove fixes for non-Chinese month-label mixing and legacy Widget status-language mixing; final re-reviews found no confirmed issues.
+- Handoff notes: New, missing, and unknown App settings use the stable raw value `system_default`; existing explicit `zh-Hans` and `en` values remain unchanged. Automatic mode resolves Chinese system interface languages to Simplified Chinese and all other interface languages to English while preserving regional hour-cycle and week-start preferences. Changing the preference does not reset cadence or activity data. Runtime changes to the macOS primary language rely on the normal app/system refresh or relaunch path rather than a custom hot-switch observer. Version `0.2.8 (13)`, Git state, and the unrelated untracked `output/` directory remain unchanged; no commit, push, tag, DMG, or Release was performed.
+
+### TASK-20260903-english-layout-adaptation
+
+- Status: Done
+- Goal: Make the English activity-guide window fully readable at its normal size and audit all app-owned English surfaces for missing localization or layout regressions.
+- Impacted areas: Reminder panel sizing and SwiftUI layout, bilingual presentation coverage, notifications/menu/settings/Widget/update/accessibility copy audit, packaged App visual acceptance, and project documentation.
+- Verification: `swift test --disable-sandbox` passed 280/280 and `git diff --check` passed. The signed App/Widget build and transaction install succeeded with TeamIdentifier `973KFG9CL9` and the required App Group. Production-hosting tests cover every normal Chinese/English reminder, guide, completion message and action within the fixed horizontal bounds; the accessibility fallback proves the cancel action intersects the real scroll viewport after scrolling. The installed English menu, General Settings page, Widget, and 1-minute guide were inspected on the desktop; the guide displayed all text, countdown, and cancel action at its normal size without a scrollbar. Two independent adversarial reviews found and drove fixes for scroll reachability, timer-ring clipping, midnight formatting, cross-language error details, count grammar, time-cycle formatting, and status wording; final reviews found no remaining confirmed issues.
+- Handoff notes: Normal reminder panels remain fixed at 420 pt wide with a 360 pt minimum height, while small screens and accessibility text sizes retain the internal scroll fallback. Automatic Hosting Controller sizing remains disabled and countdown ticks do not remeasure the panel. Reminder cadence, settings/history/Widget persistence, version `0.2.8 (13)`, and the unrelated untracked `output/` directory are unchanged. The desktop acceptance activity was canceled before completion. No commit, push, tag, DMG, or Release was performed.
+
+### TASK-20260824-settings-value-controls
+
+- Status: Done
+- Goal: Unify reminder interval, daily target, schedule times, and language as complete trailing value pickers so values and disclosure indicators remain visually grouped and right-aligned.
+- Impacted areas: General Settings presentation, localized value copy, option compatibility, accessibility, regression coverage, and packaged App visual acceptance.
+- Verification: `swift test --disable-sandbox` passed 271/271; `./Scripts/build_app.sh` passed and the transaction installer replaced `/Applications/SitRight.app` after verifying TeamIdentifier `973KFG9CL9` and the required App Group; `git diff --check` passed. Production-hosting coverage verified aligned picker edges, complete values, and no clipping in Simplified Chinese and English. The installed `0.2.8 (13)` Settings window was opened and visually checked: daily target displays the complete `10 次` value and all trailing picker controls align consistently. Two independent reviews found no remaining settings-compatibility, layout, keyboard, or accessibility issues.
+- Handoff notes: Existing settings storage, immediate persistence, legacy off-step time/interval selections, reminder behavior, fixed window width, and unrelated workspace changes are preserved. The generated Xcode project and build products remain untracked; `output/` was not modified. No version change, commit, push, tag, or Release was performed.
+
+### TASK-20260824-in-app-language
+
+- Status: Done
+- Goal: Add an in-app Simplified Chinese / English language preference that updates the app, reminders, notifications, and Widget without changing reminder or activity-history behavior.
+- Impacted areas: App settings compatibility, user-facing copy, notification categories, Widget snapshot/display, accessibility, README, project context, and regression coverage.
+- Verification: `swift test --disable-sandbox` passed 272/272; `./Scripts/build_app.sh` passed; both packaged targets contain valid English and Simplified Chinese string resources; `git diff --check` passed. Independent implementation and release reviews closed notification concurrency, locale, runtime copy, development-build version text, layout, and compatibility findings.
+- Handoff notes: Existing users remain on Simplified Chinese until they choose English. The additive language field tolerates missing and unknown values; changing it does not reset cadence or activity data. No app installation, version change, Git commit, push, or release was performed.
+
 ### TASK-20260812-heatmap-symmetric-edge-fill
 
 - Status: Done

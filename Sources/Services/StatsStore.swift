@@ -315,9 +315,21 @@ final class StatsStore: ObservableObject {
         }
     }
 
+    func lastCompletedText(language: AppLanguage = .simplifiedChinese) -> String {
+        guard let date = today.lastCompletedAt else {
+            return language.text(
+                "今天还没有完成活动",
+                "No completed breaks today"
+            )
+        }
+        return language.text(
+            "上次完成 \(language.formattedTime(date))",
+            "Last completed at \(language.formattedTime(date))"
+        )
+    }
+
     var lastCompletedText: String {
-        guard let date = today.lastCompletedAt else { return "今天还没有完成活动" }
-        return "上次完成 \(date.formatted(date: .omitted, time: .shortened))"
+        lastCompletedText()
     }
 
     private func saveLegacyToday() {

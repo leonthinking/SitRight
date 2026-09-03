@@ -13,16 +13,18 @@ struct UpdateConfiguration: Equatable {
 
     let currentVersion: String
     let currentBuild: String
+    let isDevelopmentBuild: Bool
     let feedURL: URL?
     let publicEDKey: String
 
     init(infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:]) {
-        currentVersion =
-            infoDictionary["CFBundleShortVersionString"] as? String ??
-            "开发版"
+        let bundledVersion =
+            infoDictionary["CFBundleShortVersionString"] as? String
+        currentVersion = bundledVersion ?? "—"
         currentBuild =
             infoDictionary["CFBundleVersion"] as? String ??
             "—"
+        isDevelopmentBuild = bundledVersion == nil
         if let rawFeedURL = infoDictionary["SUFeedURL"] as? String {
             feedURL = URL(string: rawFeedURL)
         } else {
@@ -35,12 +37,14 @@ struct UpdateConfiguration: Equatable {
         currentVersion: String,
         currentBuild: String,
         feedURL: URL?,
-        publicEDKey: String
+        publicEDKey: String,
+        isDevelopmentBuild: Bool = false
     ) {
         self.currentVersion = currentVersion
         self.currentBuild = currentBuild
         self.feedURL = feedURL
         self.publicEDKey = publicEDKey
+        self.isDevelopmentBuild = isDevelopmentBuild
     }
 
     var hasValidPublicEDKey: Bool {
@@ -67,27 +71,34 @@ enum UpdatePresentationState: Equatable {
     case installing(version: String)
     case failed
 
-    var statusText: String {
+    func statusText(language: AppLanguage = .simplifiedChinese) -> String {
         switch self {
         case .unavailable:
-            return "发布密钥尚未配置"
+            return language.text("发布密钥尚未配置", "The release key is not configured")
         case .idle:
-            return "每天自动检查一次"
+            return language.text("每天自动检查一次", "Checks automatically once a day")
         case .checking:
-            return "正在检查更新…"
+            return language.text("正在检查更新…", "Checking for updates…")
         case .current:
-            return "当前已是最新版"
+            return language.text("当前已是最新版", "SitRight is up to date")
         case .noCompatibleUpdate:
-            return "未发现适用于此 Mac 的更新"
+            return language.text(
+                "未发现适用于此 Mac 的更新",
+                "No compatible update was found for this Mac"
+            )
         case .available(let version):
-            return "发现 SitRight v\(version)"
+            return language.text("发现 SitRight v\(version)", "SitRight v\(version) is available")
         case .downloading(let version):
-            return "正在下载 SitRight v\(version)…"
+            return language.text("正在下载 SitRight v\(version)…", "Downloading SitRight v\(version)…")
         case .installing(let version):
-            return "正在安装 SitRight v\(version)…"
+            return language.text("正在安装 SitRight v\(version)…", "Installing SitRight v\(version)…")
         case .failed:
-            return "更新失败，请稍后重试"
+            return language.text("更新失败，请稍后重试", "The update failed. Please try again later.")
         }
+    }
+
+    var statusText: String {
+        statusText()
     }
 
     var systemImage: String {
@@ -171,22 +182,49 @@ final class UpdateController: NSObject, ObservableObject {
     }
 
     var currentVersionText: String {
-        "版本 \(configuration.currentVersion)（\(configuration.currentBuild)）"
+        currentVersionText(language: .simplifiedChinese)
+    }
+
+    func currentVersionText(language: AppLanguage) -> String {
+        if configuration.isDevelopmentBuild {
+            return language.text(
+                "开发版（\(configuration.currentBuild)）",
+                "Development build (\(configuration.currentBuild))"
+            )
+        }
+        return language.text(
+            "版本 \(configuration.currentVersion)（\(configuration.currentBuild)）",
+            "Version \(configuration.currentVersion) (\(configuration.currentBuild))"
+        )
+    }
+
+    func statusText(language: AppLanguage = .simplifiedChinese) -> String {
+        if state == .idle && !automaticallyChecksForUpdates {
+            return language.text("自动检查已关闭", "Automatic checks are off")
+        }
+        if state == .current {
+            return language.text(
+                "当前已是最新版：\(configuration.currentVersion)（\(configuration.currentBuild)）",
+                "Up to date: \(configuration.currentVersion) (\(configuration.currentBuild))"
+            )
+        }
+        return state.statusText(language: language)
     }
 
     var statusText: String {
-        if state == .idle && !automaticallyChecksForUpdates {
-            return "自动检查已关闭"
-        }
-        if state == .current {
-            return "当前已是最新版：\(configuration.currentVersion)（\(configuration.currentBuild)）"
-        }
-        return state.statusText
+        statusText()
+    }
+
+    func lastCheckText(language: AppLanguage = .simplifiedChinese) -> String? {
+        guard let lastCheckDate else { return nil }
+        return language.text(
+            "最近检查：\(language.formattedTime(lastCheckDate))",
+            "Last checked: \(language.formattedTime(lastCheckDate))"
+        )
     }
 
     var lastCheckText: String? {
-        guard let lastCheckDate else { return nil }
-        return "最近检查：\(lastCheckDate.formatted(date: .omitted, time: .shortened))"
+        lastCheckText()
     }
 
     var isConfigured: Bool {

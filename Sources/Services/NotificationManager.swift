@@ -64,6 +64,7 @@ enum ReminderNotificationAction: Equatable, Sendable {
 @MainActor
 final class NotificationManager: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     nonisolated static let reminderCategoryIdentifier = "SITRIGHT_ACTIVITY_REMINDER"
+    nonisolated static let englishReminderCategoryIdentifier = "SITRIGHT_ACTIVITY_REMINDER_EN"
     nonisolated static let startActionIdentifier = "SITRIGHT_START_ACTIVITY"
     nonisolated static let snoozeActionIdentifier = "SITRIGHT_SNOOZE"
     nonisolated static let cycleIDUserInfoKey = "sitright.cycleID"
@@ -73,22 +74,75 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     private let client: any NotificationCenterClient
     private let activationNotificationCenter: NotificationCenter
     private let didBecomeActiveNotification: Notification.Name
+    private var language: AppLanguage
     private var statusRevision = 0
     private var reminderActionHandler: ((ReminderNotificationAction) -> Void)?
     private var pendingReminderActions: [ReminderNotificationAction] = []
 
+    private enum PresentationError {
+        case authorizationFailed(String)
+        case permissionUnavailable
+        case permissionDenied
+        case deliveryFailed(String)
+        case unknownPermission
+
+        func message(language: AppLanguage) -> String {
+            switch self {
+            case .authorizationFailed(let detail):
+                let presentedDetail = language.sanitizedSystemErrorDetail(
+                    detail,
+                    simplifiedChineseFallback: "请重试",
+                    englishFallback: "Please try again"
+                )
+                return language.text(
+                    "通知授权失败：\(presentedDetail)",
+                    "Notification authorization failed: \(presentedDetail)"
+                )
+            case .permissionUnavailable:
+                return language.text(
+                    "系统通知权限未开启",
+                    "System notification permission is not enabled"
+                )
+            case .permissionDenied:
+                return language.text(
+                    "系统通知权限已关闭",
+                    "System notification permission is off"
+                )
+            case .deliveryFailed(let detail):
+                let presentedDetail = language.sanitizedSystemErrorDetail(
+                    detail,
+                    simplifiedChineseFallback: "请重试",
+                    englishFallback: "Please try again"
+                )
+                return language.text(
+                    "通知发送失败：\(presentedDetail)",
+                    "Notification delivery failed: \(presentedDetail)"
+                )
+            case .unknownPermission:
+                return language.text(
+                    "无法确认系统通知权限",
+                    "Unable to determine notification permission"
+                )
+            }
+        }
+    }
+
+    private var presentationError: PresentationError?
+
     init(
         client: any NotificationCenterClient = SystemNotificationCenterClient(),
+        language: AppLanguage = .simplifiedChinese,
         activationNotificationCenter: NotificationCenter = .default,
         didBecomeActiveNotification: Notification.Name = NSApplication.didBecomeActiveNotification
     ) {
         self.client = client
+        self.language = language
         self.activationNotificationCenter = activationNotificationCenter
         self.didBecomeActiveNotification = didBecomeActiveNotification
         super.init()
 
         client.setDelegate(self)
-        client.setNotificationCategories([Self.reminderCategory])
+        client.setNotificationCategories(Self.reminderCategories)
         activationNotificationCenter.addObserver(
             self,
             selector: #selector(applicationDidBecomeActive),
@@ -128,7 +182,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
                 self?.applyAuthorizationStatus(refreshedStatus, revision: revision)
             } catch {
                 self?.applyError(
-                    "通知授权失败：\(error.localizedDescription)",
+                    .authorizationFailed(error.localizedDescription),
                     revision: revision
                 )
             }
@@ -155,21 +209,26 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         completion: @escaping (Bool) -> Void
     ) {
         let revision = beginStatusOperation()
+        // Keep one localization context for the whole asynchronous delivery.
+        // The body was produced in this same language by ReminderEngine, so a
+        // settings change while permission is being queried must not create a
+        // mixed-language notification.
+        let deliveryLanguage = language
         Task { @MainActor [weak self, client] in
             let status = await client.authorizationStatus()
             self?.applyAuthorizationStatus(status, revision: revision)
 
             guard status == .authorized || status == .provisional else {
-                self?.applyError("系统通知权限未开启", revision: revision)
+                self?.applyError(.permissionUnavailable, revision: revision)
                 completion(false)
                 return
             }
 
             let content = UNMutableNotificationContent()
-            content.title = "SitRight 坐正"
-            content.subtitle = "活动提醒"
+            content.title = deliveryLanguage.text("SitRight 坐正", "SitRight")
+            content.subtitle = deliveryLanguage.text("活动提醒", "Activity reminder")
             content.body = body
-            content.categoryIdentifier = Self.reminderCategoryIdentifier
+            content.categoryIdentifier = Self.reminderCategoryIdentifier(for: deliveryLanguage)
             content.userInfo = [Self.cycleIDUserInfoKey: cycleID.uuidString]
             if soundEnabled {
                 content.sound = .default
@@ -186,7 +245,7 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
                 completion(true)
             } catch {
                 self?.applyError(
-                    "通知发送失败：\(error.localizedDescription)",
+                    .deliveryFailed(error.localizedDescription),
                     revision: revision
                 )
                 completion(false)
@@ -207,23 +266,54 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         queuedActions.forEach(handler)
     }
 
-    private static var reminderCategory: UNNotificationCategory {
+    func setLanguage(_ language: AppLanguage) {
+        guard self.language != language else { return }
+        self.language = language
+        client.setNotificationCategories(Self.reminderCategories)
+
+        // A language-only change must not supersede an authorization or
+        // delivery operation that is already awaiting the system. Existing
+        // errors are structured so their app-owned copy can be re-rendered.
+        if let presentationError {
+            lastErrorMessage = presentationError.message(language: language)
+        }
+    }
+
+    private static var reminderCategories: Set<UNNotificationCategory> {
+        [
+            reminderCategory(language: .simplifiedChinese),
+            reminderCategory(language: .english)
+        ]
+    }
+
+    private static func reminderCategory(language: AppLanguage) -> UNNotificationCategory {
         let startAction = UNNotificationAction(
             identifier: startActionIdentifier,
-            title: "开始 1 分钟活动",
+            title: language.text("开始 1 分钟活动", "Start a 1-minute break"),
             options: [.foreground]
         )
         let snoozeAction = UNNotificationAction(
             identifier: snoozeActionIdentifier,
-            title: "延后 5 分钟",
+            title: language.text("延后 5 分钟", "Remind me in 5 minutes"),
             options: []
         )
         return UNNotificationCategory(
-            identifier: reminderCategoryIdentifier,
+            identifier: reminderCategoryIdentifier(for: language),
             actions: [startAction, snoozeAction],
             intentIdentifiers: [],
             options: []
         )
+    }
+
+    private static func reminderCategoryIdentifier(for language: AppLanguage) -> String {
+        switch language.resolvedLanguage() {
+        case .systemDefault:
+            englishReminderCategoryIdentifier
+        case .simplifiedChinese:
+            reminderCategoryIdentifier
+        case .english:
+            englishReminderCategoryIdentifier
+        }
     }
 
     private static func notificationIdentifier(for cycleID: UUID) -> String {
@@ -241,23 +331,28 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
 
         switch status {
         case .denied:
-            lastErrorMessage = "系统通知权限已关闭"
+            presentationError = .permissionDenied
+            lastErrorMessage = presentationError?.message(language: language)
         case .authorized, .provisional, .ephemeral:
+            presentationError = nil
             lastErrorMessage = nil
         case .notDetermined:
             break
         @unknown default:
-            lastErrorMessage = "无法确认系统通知权限"
+            presentationError = .unknownPermission
+            lastErrorMessage = presentationError?.message(language: language)
         }
     }
 
-    private func applyError(_ message: String, revision: Int) {
+    private func applyError(_ error: PresentationError, revision: Int) {
         guard revision == statusRevision else { return }
-        lastErrorMessage = message
+        presentationError = error
+        lastErrorMessage = error.message(language: language)
     }
 
     private func clearError(revision: Int) {
         guard revision == statusRevision else { return }
+        presentationError = nil
         lastErrorMessage = nil
     }
 

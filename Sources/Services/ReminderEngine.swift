@@ -35,22 +35,38 @@ enum ActivityGuideCompletionOutcome: Equatable {
     case proactiveSatisfyingUpcomingReminder
     case proactiveFollowingSchedule
 
-    var celebrationText: String {
+    func celebrationText(language: AppLanguage = .simplifiedChinese) -> String {
         switch self {
         case .reminderResponse:
-            return "做得好，已完成 1 分钟活动。下一轮提醒已开始。"
+            return language.text(
+                "做得好，已完成 1 分钟活动。下一轮提醒已开始。",
+                "Nice work. You completed a 1-minute break, and the next reminder cycle has started."
+            )
         case .proactivePreservingCadence:
-            return "做得好，已完成 1 分钟主动活动。原提醒时间不变。"
+            return language.text(
+                "做得好，已完成 1 分钟主动活动。原提醒时间不变。",
+                "Nice work. You completed a proactive 1-minute break. Your original reminder time is unchanged."
+            )
         case .proactiveSatisfyingUpcomingReminder:
-            return "做得好，已完成 1 分钟主动活动。本轮提醒已满足。"
+            return language.text(
+                "做得好，已完成 1 分钟主动活动。本轮提醒已满足。",
+                "Nice work. You completed a proactive 1-minute break, so this reminder cycle is complete."
+            )
         case .proactiveFollowingSchedule:
-            return "做得好，已完成 1 分钟主动活动。提醒将按工作时段继续。"
+            return language.text(
+                "做得好，已完成 1 分钟主动活动。提醒将按工作时段继续。",
+                "Nice work. You completed a proactive 1-minute break. Reminders will continue during your work schedule."
+            )
         }
     }
 
-    var accessibilityAnnouncement: String {
-        celebrationText
+    var celebrationText: String { celebrationText() }
+
+    func accessibilityAnnouncement(language: AppLanguage = .simplifiedChinese) -> String {
+        celebrationText(language: language)
     }
+
+    var accessibilityAnnouncement: String { accessibilityAnnouncement() }
 }
 
 @MainActor
@@ -68,6 +84,7 @@ protocol ReminderNotificationManaging: AnyObject {
         completion: @escaping (Bool) -> Void
     )
     func cancelReminder(cycleID: UUID)
+    func setLanguage(_ language: AppLanguage)
     func setReminderActionHandler(_ handler: @escaping (ReminderNotificationAction) -> Void)
 }
 
@@ -82,6 +99,7 @@ extension ReminderNotificationManaging {
     }
 
     func cancelReminder(cycleID: UUID) {}
+    func setLanguage(_ language: AppLanguage) {}
     func setReminderActionHandler(_ handler: @escaping (ReminderNotificationAction) -> Void) {}
 }
 
@@ -93,6 +111,11 @@ protocol ReminderPresenting: AnyObject {
     func presentGuide(endsAt: Date, completion: @escaping (ReminderAction) -> Void)
     func updateGuide(endsAt: Date)
     func presentGuideCompletion(message: String)
+    func presentGuideCompletion(
+        outcome: ActivityGuideCompletionOutcome,
+        language: AppLanguage
+    )
+    func setLanguage(_ language: AppLanguage)
     func dismiss()
 }
 
@@ -100,12 +123,21 @@ extension ReminderPresenter: ReminderPresenting {}
 
 extension ReminderPresenting {
     func presentGuide(endsAt: Date, completion: @escaping (ReminderAction) -> Void) {
-        present(message: "按你的身体状况，换个姿势或活动 60 秒。", completion: completion)
+        present(message: ReminderMessages.guide(), completion: completion)
     }
 
     func updateGuide(endsAt: Date) {}
 
     func presentGuideCompletion(message: String) {}
+
+    func presentGuideCompletion(
+        outcome: ActivityGuideCompletionOutcome,
+        language: AppLanguage
+    ) {
+        presentGuideCompletion(message: outcome.celebrationText(language: language))
+    }
+
+    func setLanguage(_ language: AppLanguage) {}
 }
 
 @MainActor
@@ -135,6 +167,7 @@ final class ReminderEngine: ObservableObject {
     private var reminderShowing = false
     private var pendingDeliveryID: UUID?
     private var celebrationTask: Task<Void, Never>?
+    private var celebrationOutcome: ActivityGuideCompletionOutcome?
     private var lastTickAt: Date?
     private var lastTickWasAllowed = false
     private var lastDateKey: String?
@@ -289,7 +322,9 @@ final class ReminderEngine: ObservableObject {
         announcedGuideMilestones.removeAll()
         phase = .guiding
         state = .due
-        currentReminderText = "按你的身体状况，换个姿势或活动 60 秒。"
+        currentReminderText = ReminderMessages.guide(
+            language: settingsStore.settings.language
+        )
         if let cycleID = guideCycleID {
             notificationManager.cancelReminder(cycleID: cycleID)
         }
@@ -302,7 +337,10 @@ final class ReminderEngine: ObservableObject {
             self?.handleReminderAction(action)
         }
         lastTickAt = actionDate
-        ReminderAccessibility.announce("已开始 60 秒活动")
+        ReminderAccessibility.announce(settingsStore.settings.language.text(
+            "已开始 60 秒活动",
+            "Started a 60-second break"
+        ))
         publishWidgetSnapshot()
     }
 
@@ -446,77 +484,116 @@ final class ReminderEngine: ObservableObject {
         return true
     }
 
+    var appLanguage: AppLanguage {
+        settingsStore.settings.language
+    }
+
     var isProactiveGuide: Bool {
         phase == .guiding && guideActivityID != nil && guideCycleID == nil
     }
 
     var countdownText: String {
+        let language = settingsStore.settings.language
         switch state {
         case .paused:
-            return "已暂停"
+            return language.text("已暂停", "Paused")
         case .disabled:
-            return "已关闭"
+            return language.text("已关闭", "Off")
         case .due:
-            return phase == .guiding ? TimeFormatting.countdown(remainingInterval) : "该活动了"
+            return phase == .guiding
+                ? TimeFormatting.countdown(remainingInterval)
+                : language.text("该活动了", "Time to move")
         case .outsideHours:
-            return "非工作时间"
+            return language.text("非工作时间", "Off hours")
         case .running:
-            if phase == .snoozed { return "已延后 \(TimeFormatting.countdown(remainingInterval))" }
-            if phase == .overdue { return "等待下次提醒" }
+            if phase == .snoozed {
+                return language.text(
+                    "已延后 \(TimeFormatting.countdown(remainingInterval))",
+                    "Snoozed \(TimeFormatting.countdown(remainingInterval))"
+                )
+            }
+            if phase == .overdue {
+                return language.text("等待", "Waiting")
+            }
             return TimeFormatting.countdown(remainingInterval)
         }
     }
 
     var menuBarTitle: String {
+        let language = settingsStore.settings.language
         switch state {
         case .paused:
-            return "暂停"
+            return language.text("暂停", "Pause")
         case .disabled:
-            return "关闭"
+            return language.text("关闭", "Off")
         case .due:
-            return phase == .guiding ? "60秒" : "活动"
+            return phase == .guiding
+                ? language.text("60秒", "60s")
+                : language.text("活动", "Move")
         case .outsideHours:
-            return "休息"
+            return language.text("休息", "Rest")
         case .running:
             return TimeFormatting.menuBarCountdown(remainingInterval)
         }
     }
 
     var statusText: String {
+        let language = settingsStore.settings.language
         switch phase {
         case .delivering:
-            return "正在发送活动提醒"
+            return language.text("正在发送活动提醒", "Sending activity reminder")
         case .awaitingResponse:
-            return "等待开始 1 分钟活动"
+            return language.text("等待开始 1 分钟活动", "Waiting to start a 1-minute break")
         case .snoozed:
-            return "已延后 5 分钟"
+            return language.text("已延后 5 分钟", "Reminder snoozed for 5 minutes")
         case .guiding:
-            return "活动进行中，还剩 \(Int(ceil(remainingInterval))) 秒"
+            let remainingSeconds = Int(ceil(remainingInterval))
+            let remainingText = language.quantity(
+                remainingSeconds,
+                simplifiedChineseUnit: "秒",
+                englishSingular: "second",
+                englishPlural: "seconds"
+            )
+            return language.text(
+                "活动进行中，还剩 \(remainingText)",
+                "Break in progress, \(remainingText) remaining"
+            )
         case .overdue:
-            return deliveryBlocked ? "活动时间已到，提醒渠道不可用" : "活动时间已到"
+            return deliveryBlocked
+                ? language.text(
+                    "活动时间已到，提醒渠道不可用",
+                    "It is time to move, but no reminder method is available"
+                )
+                : language.text("活动时间已到", "It is time to move")
         case .paused:
-            guard let pauseUntil else { return "已暂停" }
-            return "暂停到 \(pauseUntil.formatted(date: .omitted, time: .shortened))"
+            guard let pauseUntil else { return language.text("已暂停", "Paused") }
+            return language.text(
+                "暂停到 \(language.formattedTime(pauseUntil))",
+                "Paused until \(language.formattedTime(pauseUntil))"
+            )
         case .outsideSchedule:
-            return "非提醒时段"
+            return language.text("非提醒时段", "Outside reminder hours")
         case .disabled:
-            return "提醒已关闭"
+            return language.text("提醒已关闭", "Reminders are off")
         case .accumulating:
             break
         }
 
         switch state {
         case .running:
-            return "提醒进行中"
+            return language.text("提醒进行中", "Reminders are active")
         case .paused(let until):
-            guard let until else { return "已暂停" }
-            return "暂停到 \(until.formatted(date: .omitted, time: .shortened))"
+            guard let until else { return language.text("已暂停", "Paused") }
+            return language.text(
+                "暂停到 \(language.formattedTime(until))",
+                "Paused until \(language.formattedTime(until))"
+            )
         case .outsideHours:
-            return "非提醒时段"
+            return language.text("非提醒时段", "Outside reminder hours")
         case .disabled:
-            return "提醒已关闭"
+            return language.text("提醒已关闭", "Reminders are off")
         case .due:
-            return "到活动时间了"
+            return language.text("到活动时间了", "Time to move")
         }
     }
 
@@ -550,8 +627,14 @@ final class ReminderEngine: ObservableObject {
     }
 
     var nextReminderText: String {
-        guard let nextReminderAt else { return "还没有安排下一次提醒" }
-        return "下次 \(nextReminderAt.formatted(date: .omitted, time: .shortened))"
+        let language = settingsStore.settings.language
+        guard let nextReminderAt else {
+            return language.text("还没有安排下一次提醒", "No next reminder is scheduled")
+        }
+        return language.text(
+            "下次 \(language.formattedTime(nextReminderAt))",
+            "Next at \(language.formattedTime(nextReminderAt))"
+        )
     }
 
     func tick() {
@@ -717,7 +800,7 @@ final class ReminderEngine: ObservableObject {
         }
 
         let actionDate = now
-        let message = ReminderMessages.reminder
+        let message = ReminderMessages.reminder(language: settingsStore.settings.language)
         let settings = settingsStore.settings
         let cycleID = UUID()
         let responseDeadline = actionDate.addingTimeInterval(ReminderTiming.responseWindow)
@@ -813,6 +896,20 @@ final class ReminderEngine: ObservableObject {
     }
 
     private func settingsDidChange(from oldSettings: AppSettings, to newSettings: AppSettings) {
+        if newSettings.language != oldSettings.language {
+            notificationManager.setLanguage(newSettings.language)
+            reminderPresenter.setLanguage(newSettings.language)
+            if phase == .guiding {
+                currentReminderText = ReminderMessages.guide(language: newSettings.language)
+            } else if currentReminderText != nil {
+                currentReminderText = ReminderMessages.reminder(language: newSettings.language)
+            }
+            if let celebrationOutcome {
+                celebrationText = celebrationOutcome.celebrationText(
+                    language: newSettings.language
+                )
+            }
+        }
         if newSettings.notificationsEnabled && !oldSettings.notificationsEnabled {
             notificationManager.requestAuthorizationIfNeeded()
         }
@@ -870,11 +967,13 @@ final class ReminderEngine: ObservableObject {
 
     private func showCelebration(for outcome: ActivityGuideCompletionOutcome) {
         celebrationTask?.cancel()
-        celebrationText = outcome.celebrationText
+        celebrationOutcome = outcome
+        celebrationText = outcome.celebrationText(language: settingsStore.settings.language)
 
         celebrationTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(ReminderTiming.completionFeedbackDuration))
             guard !Task.isCancelled else { return }
+            celebrationOutcome = nil
             celebrationText = nil
         }
     }
@@ -1068,7 +1167,7 @@ final class ReminderEngine: ObservableObject {
             responseDeadline: deadline
         ) else { return }
         activeReminderCycle = statsStore.latestPendingCycle
-        let message = ReminderMessages.reminder
+        let message = ReminderMessages.reminder(language: settingsStore.settings.language)
         if settingsStore.settings.notificationsEnabled {
             notificationManager.deliverReminder(
                 cycleID: cycle.id,
@@ -1191,8 +1290,14 @@ final class ReminderEngine: ObservableObject {
         lastTickAt = date
         lastTickWasAllowed = SchedulePolicy.isAllowed(date, settings: settingsStore.settings)
         showCelebration(for: completionOutcome)
-        reminderPresenter.presentGuideCompletion(message: completionOutcome.celebrationText)
-        ReminderAccessibility.announce(completionOutcome.accessibilityAnnouncement)
+        let language = settingsStore.settings.language
+        reminderPresenter.presentGuideCompletion(
+            outcome: completionOutcome,
+            language: language
+        )
+        ReminderAccessibility.announce(
+            completionOutcome.accessibilityAnnouncement(language: language)
+        )
         refreshScheduleState(at: date)
         updateTodaySnapshot(at: date)
         persistRuntimeCheckpoint()
@@ -1332,10 +1437,16 @@ final class ReminderEngine: ObservableObject {
 
     private func announceGuideMilestonesIfNeeded() {
         if guideElapsedSeconds >= 30, announcedGuideMilestones.insert(30).inserted {
-            ReminderAccessibility.announce("活动已进行 30 秒")
+            ReminderAccessibility.announce(settingsStore.settings.language.text(
+                "活动已进行 30 秒",
+                "Break has been in progress for 30 seconds"
+            ))
         }
         if guideElapsedSeconds >= 50, announcedGuideMilestones.insert(50).inserted {
-            ReminderAccessibility.announce("还剩 10 秒")
+            ReminderAccessibility.announce(settingsStore.settings.language.text(
+                "还剩 10 秒",
+                "10 seconds remaining"
+            ))
         }
     }
 
@@ -1397,11 +1508,23 @@ final class ReminderEngine: ObservableObject {
     }
 }
 
-private enum ReminderMessages {
-    static let reminder = "到活动时间了。按你的身体状况，换个姿势或活动 60 秒。"
+enum ReminderMessages {
+    static func guide(language: AppLanguage = .simplifiedChinese) -> String {
+        language.text(
+            "按你的身体状况，换个姿势或活动 60 秒。",
+            "Choose a comfortable movement or change position for 60 seconds."
+        )
+    }
+
+    static func reminder(language: AppLanguage = .simplifiedChinese) -> String {
+        language.text(
+            "到活动时间了。按你的身体状况，换个姿势或活动 60 秒。",
+            "It is time to move. Choose a comfortable movement or change position for 60 seconds."
+        )
+    }
 
     static func randomReminder() -> String {
-        reminder
+        reminder()
     }
 }
 

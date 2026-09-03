@@ -14,7 +14,8 @@ struct MenuBarStatusLabel: View {
                 ZStack(alignment: .trailing) {
                     Text(MenuBarTitleLayout.measurementText(
                         for: engine.state,
-                        remainingInterval: engine.remainingInterval
+                        remainingInterval: engine.remainingInterval,
+                        language: settingsStore.settings.language
                     ))
                     .hidden()
                     .accessibilityHidden(true)
@@ -28,19 +29,21 @@ struct MenuBarStatusLabel: View {
                 .frame(
                     width: MenuBarTitleLayout.fixedWidth(
                         for: engine.state,
-                        remainingInterval: engine.remainingInterval
+                        remainingInterval: engine.remainingInterval,
+                        language: settingsStore.settings.language
                     ),
                     alignment: .trailing
                 )
                 .fixedSize(horizontal: true, vertical: false)
             }
         }
-        .accessibilityLabel("SitRight 坐正")
+        .accessibilityLabel(settingsStore.settings.language.text("SitRight 坐正", "SitRight"))
         .accessibilityValue(ReminderAccessibility.statusText(
             statusText: engine.statusText,
             countdownText: engine.countdownText,
             state: engine.state,
-            showsCountdown: settingsStore.settings.menuBarCountdownEnabled
+            showsCountdown: settingsStore.settings.menuBarCountdownEnabled,
+            language: settingsStore.settings.language
         ))
     }
 

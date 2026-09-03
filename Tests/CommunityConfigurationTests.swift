@@ -204,7 +204,7 @@ final class CommunityConfigurationTests: XCTestCase {
             format: nil
         ) as? [String: Any]
 
-        XCTAssertTrue(packageManifest.contains(".copy(\"Resources\")"))
+        XCTAssertTrue(packageManifest.contains(".process(\"Resources\")"))
         XCTAssertEqual(
             info?["NSHumanReadableCopyright"] as? String,
             "Copyright © 2026 Leon Zhang. MIT License."

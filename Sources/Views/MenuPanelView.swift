@@ -85,63 +85,77 @@ enum TodayActionMode: Equatable {
 enum TimerRingPresentationText {
     static func contextLabel(
         phase: ReminderPhase,
-        state: ReminderRunState
+        state: ReminderRunState,
+        language: AppLanguage = .simplifiedChinese
     ) -> String {
         switch state {
         case .paused:
-            return "提醒状态"
+            return language.text("提醒状态", "Reminder status")
         case .outsideHours:
-            return "当前状态"
+            return language.text("当前状态", "Current status")
         case .disabled:
-            return "提醒状态"
+            return language.text("提醒状态", "Reminder status")
         case .running, .due:
             break
         }
 
         switch phase {
         case .accumulating:
-            return "距离下次提醒"
+            return language.text("距离下次提醒", "Until next reminder")
         case .snoozed:
-            return "已延后"
+            return language.text("已延后", "Snoozed")
         case .delivering:
-            return "正在准备提醒"
+            return language.text("正在准备提醒", "Preparing reminder")
         case .awaitingResponse, .guiding, .overdue:
-            return "活动提醒"
+            return language.text("活动提醒", "Activity reminder")
         case .paused:
-            return "提醒状态"
+            return language.text("提醒状态", "Reminder status")
         case .outsideSchedule:
-            return "当前状态"
+            return language.text("当前状态", "Current status")
         case .disabled:
-            return "提醒状态"
+            return language.text("提醒状态", "Reminder status")
         }
     }
 
     static func subtitle(
         phase: ReminderPhase,
         nextReminderAt: Date?,
-        isProactiveGuide: Bool = false
+        isProactiveGuide: Bool = false,
+        language: AppLanguage = .simplifiedChinese
     ) -> String {
-        let timeText = nextReminderAt?.formatted(date: .omitted, time: .shortened)
+        let timeText = nextReminderAt.map(language.formattedTime)
 
         switch phase {
         case .accumulating:
-            return timeText.map { "下次 \($0)" } ?? "还没有安排下一次提醒"
+            return timeText.map {
+                language.text("下次 \($0)", "Next at \($0)")
+            } ?? language.text("还没有安排下一次提醒", "No reminder scheduled")
         case .delivering:
-            return "正在准备本次提醒"
+            return language.text("正在准备本次提醒", "Preparing reminder")
         case .awaitingResponse:
-            return timeText.map { "请在 \($0) 前开始" } ?? "请尽快开始本次活动"
+            return timeText.map {
+                language.text("请在 \($0) 前开始", "Start before \($0)")
+            } ?? language.text("请尽快开始本次活动", "Start this break soon")
         case .snoozed:
-            return timeText.map { "延后至 \($0)" } ?? "本次提醒已延后"
+            return timeText.map {
+                language.text("延后至 \($0)", "Snoozed until \($0)")
+            } ?? language.text("本次提醒已延后", "Reminder snoozed")
         case .guiding:
-            return isProactiveGuide ? "主动活动，提醒节奏继续" : "完成后开始下一轮"
+            return isProactiveGuide
+                ? language.text("主动活动，提醒节奏继续", "Original reminder unchanged")
+                : language.text("完成后开始下一轮", "The next cycle starts when you finish")
         case .overdue:
-            return timeText.map { "等待至 \($0)" } ?? "等待下次可用提醒"
+            return timeText.map {
+                language.text("等待至 \($0)", "Waiting until \($0)")
+            } ?? language.text("等待下次可用提醒", "Waiting for next reminder")
         case .paused:
-            return "恢复后重新计时"
+            return language.text("恢复后重新计时", "Timer restarts when resumed")
         case .outsideSchedule:
-            return timeText.map { "下次 \($0)" } ?? "等待进入提醒时段"
+            return timeText.map {
+                language.text("下次 \($0)", "Next at \($0)")
+            } ?? language.text("等待进入提醒时段", "Waiting for reminder hours")
         case .disabled:
-            return "可在设置中开启"
+            return language.text("可在设置中开启", "Enable reminders in Settings")
         }
     }
 }
@@ -167,13 +181,15 @@ struct MenuPanelPresentation: Equatable {
         isCelebrating = celebrationText != nil
         timerContextLabel = TimerRingPresentationText.contextLabel(
             phase: engine.phase,
-            state: engine.state
+            state: engine.state,
+            language: engine.appLanguage
         )
         countdownText = engine.countdownText
         nextReminderText = TimerRingPresentationText.subtitle(
             phase: engine.phase,
             nextReminderAt: engine.nextReminderAt,
-            isProactiveGuide: engine.isProactiveGuide
+            isProactiveGuide: engine.isProactiveGuide,
+            language: engine.appLanguage
         )
         progressFraction = engine.progressFraction
         state = engine.state
@@ -277,7 +293,8 @@ struct MenuPanelView: View {
             responseRate: statsStore.today.responseRate,
             proactiveActivities: statsStore.today.qualifiedProactiveCount,
             legacyUnclassified: statsStore.today.legacyUnclassifiedCount,
-            subtitle: statsStore.lastCompletedText
+            subtitle: statsStore.lastCompletedText(language: language),
+            language: language
         )
 
         ViewThatFits(in: .vertical) {
@@ -295,9 +312,14 @@ struct MenuPanelView: View {
             )
         }
         .frame(width: 370)
+        .environment(\.locale, language.locale)
         .onExitCommand {
             onRequestClose()
         }
+    }
+
+    private var language: AppLanguage {
+        settingsStore.settings.language
     }
 
     private func panelLayout(
@@ -342,7 +364,9 @@ struct MenuPanelView: View {
             engine: engine,
             presentation: presentation,
             progressPresentation: progressPresentation,
-            statsErrorMessage: statsStore.lastErrorMessage,
+            statsErrorMessage: statsStore.lastErrorMessage.map(
+                language.localizedRuntimeMessage
+            ),
             onOpenSettings: presentSettings
         )
     }
@@ -360,7 +384,7 @@ struct MenuPanelView: View {
             .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("SitRight 坐正")
+                Text(language.text("SitRight 坐正", "SitRight"))
                     .font(.headline)
                 Text(presentation.statusText)
                     .font(.caption)
@@ -389,9 +413,15 @@ struct MenuPanelView: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("发现 SitRight v\(version)")
+                    Text(language.text(
+                        "发现 SitRight v\(version)",
+                        "SitRight v\(version) is available"
+                    ))
                         .font(.subheadline.weight(.semibold))
-                    Text("查看更新说明并选择是否安装")
+                    Text(language.text(
+                        "查看更新说明并选择是否安装",
+                        "Review what's new and choose whether to install"
+                    ))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -407,8 +437,11 @@ struct MenuPanelView: View {
             .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("发现 SitRight \(version) 版本更新")
-        .accessibilityHint("打开更新窗口")
+        .accessibilityLabel(language.text(
+            "发现 SitRight \(version) 版本更新",
+            "SitRight \(version) update available"
+        ))
+        .accessibilityHint(language.text("打开更新窗口", "Open the update window"))
     }
 
     private var footer: some View {
@@ -416,7 +449,7 @@ struct MenuPanelView: View {
             Button {
                 presentSettings(nil)
             } label: {
-                Label("设置…", systemImage: "gearshape")
+                Label(language.text("设置…", "Settings…"), systemImage: "gearshape")
             }
             .buttonStyle(.plain)
 
@@ -425,7 +458,7 @@ struct MenuPanelView: View {
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
-                Label("退出", systemImage: "power")
+                Label(language.text("退出", "Quit"), systemImage: "power")
             }
             .buttonStyle(.plain)
         }

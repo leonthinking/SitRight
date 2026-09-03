@@ -1,6 +1,7 @@
 import Foundation
 
 struct AppSettings: Codable, Equatable {
+    var language: AppLanguage = .systemDefault
     var remindersEnabled: Bool = true
     var intervalMinutes: Int = 50
     var dailyTarget: Int = 8
@@ -19,6 +20,7 @@ struct AppSettings: Codable, Equatable {
     var launchAtLogin: Bool = false
 
     enum CodingKeys: String, CodingKey {
+        case language
         case remindersEnabled
         case intervalMinutes
         case dailyTarget
@@ -41,6 +43,14 @@ struct AppSettings: Codable, Equatable {
         let defaults = AppSettings()
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
+        if let rawLanguage = try? container.decodeIfPresent(
+            String.self,
+            forKey: .language
+        ) {
+            language = AppLanguage(rawValue: rawLanguage) ?? defaults.language
+        } else {
+            language = defaults.language
+        }
         remindersEnabled = try container.decodeIfPresent(Bool.self, forKey: .remindersEnabled) ?? defaults.remindersEnabled
         intervalMinutes = try container.decodeIfPresent(Int.self, forKey: .intervalMinutes) ?? defaults.intervalMinutes
         dailyTarget = try container.decodeIfPresent(Int.self, forKey: .dailyTarget) ?? defaults.dailyTarget

@@ -22,6 +22,7 @@ struct WidgetSnapshot: Codable, Equatable {
     }
 
     var updatedAt: Date
+    var language: AppLanguage
     var nextReminderAt: Date?
     var intervalMinutes: Int
     var state: RunState
@@ -46,6 +47,7 @@ struct WidgetSnapshot: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case updatedAt
+        case language
         case nextReminderAt
         case intervalMinutes
         case state
@@ -70,6 +72,7 @@ struct WidgetSnapshot: Codable, Equatable {
 
     init(
         updatedAt: Date,
+        language: AppLanguage = .systemDefault,
         nextReminderAt: Date?,
         intervalMinutes: Int,
         state: RunState,
@@ -92,6 +95,7 @@ struct WidgetSnapshot: Codable, Equatable {
         guideEndsAt: Date? = nil
     ) {
         self.updatedAt = updatedAt
+        self.language = language
         self.nextReminderAt = nextReminderAt
         self.intervalMinutes = intervalMinutes
         self.state = state
@@ -119,10 +123,26 @@ struct WidgetSnapshot: Codable, Equatable {
         let defaults = WidgetSnapshot.empty
         let container = try decoder.container(keyedBy: CodingKeys.self)
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? defaults.updatedAt
+        if let rawLanguage = try? container.decodeIfPresent(
+            String.self,
+            forKey: .language
+        ) {
+            language = AppLanguage(rawValue: rawLanguage) ?? defaults.language
+        } else {
+            // A snapshot without this field predates in-app language support,
+            // when all stored status text was Simplified Chinese. Preserve
+            // that language until the current App rewrites the derived cache
+            // so an English system does not briefly show mixed-language copy.
+            language = .simplifiedChinese
+        }
         nextReminderAt = try container.decodeIfPresent(Date.self, forKey: .nextReminderAt)
         intervalMinutes = try container.decodeIfPresent(Int.self, forKey: .intervalMinutes) ?? defaults.intervalMinutes
         state = try container.decodeIfPresent(RunState.self, forKey: .state) ?? defaults.state
-        statusText = try container.decodeIfPresent(String.self, forKey: .statusText) ?? defaults.statusText
+        statusText = try container.decodeIfPresent(String.self, forKey: .statusText)
+            ?? language.text(
+                "打开 SitRight 开始提醒",
+                "Open SitRight to start reminders"
+            )
         completedCount = try container.decodeIfPresent(Int.self, forKey: .completedCount) ?? defaults.completedCount
         reminderCompletedCount = try container.decodeIfPresent(
             Int.self,
@@ -174,7 +194,10 @@ struct WidgetSnapshot: Codable, Equatable {
         nextReminderAt: nil,
         intervalMinutes: 50,
         state: .disabled,
-        statusText: "打开 SitRight 开始提醒",
+        statusText: AppLanguage.systemDefault.text(
+            "打开 SitRight 开始提醒",
+            "Open SitRight to start reminders"
+        ),
         completedCount: 0,
         reminderCompletedCount: 0,
         reminderOpportunityCount: 0,
